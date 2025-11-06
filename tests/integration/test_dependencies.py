@@ -1,123 +1,154 @@
-# tests/auth/test_dependencies.py
+# ----------------------------------------------------------
+# Author: Nandan Kumar
+# Date: 11/05/2025
+# Assignment-10: Secure User Model + OAuth2 + JWT Integration
+# File: tests/integration/test_dependencies.py
+# ----------------------------------------------------------
+# Description:
+# Integration tests for authentication dependencies.
+# Validates JWT token creation, decoding, and user
+# authentication flows using mocked database sessions.
+# ----------------------------------------------------------
 
 import pytest
-from unittest.mock import MagicMock, patch, ANY
+from unittest.mock import MagicMock, patch
+from jose import jwt
 from fastapi import HTTPException, status
-from app.auth.dependencies import get_current_user, get_current_active_user
-from app.schemas.user import UserResponse
-from app.models.user import User
-from uuid import uuid4
-from datetime import datetime
+from datetime import timedelta
 
-# Sample user data for testing
-sample_user = User(
-    id=uuid4(),
-    username="testuser",
-    email="test@example.com",
-    first_name="Test",
-    last_name="User",
-    is_active=True,
-    is_verified=True,
-    created_at=datetime.utcnow(),
-    updated_at=datetime.utcnow()
-)
+from app.auth import dependencies
+from app.security import hash_password
 
-inactive_user = User(
-    id=uuid4(),
-    username="inactiveuser",
-    email="inactive@example.com",
-    first_name="Inactive",
-    last_name="User",
-    is_active=False,
-    is_verified=False,
-    created_at=datetime.utcnow(),
-    updated_at=datetime.utcnow()
-)
 
-# Fixture for mocking the database session
+# ----------------------------------------------------------
+# Fixtures
+# ----------------------------------------------------------
 @pytest.fixture
 def mock_db():
+    """Provide a mocked SQLAlchemy DB session."""
     return MagicMock()
 
-# Fixture for mocking token verification
+
 @pytest.fixture
-def mock_verify_token():
-    with patch.object(User, 'verify_token') as mock:
-        yield mock
+def fake_user():
+    """Provide a fake user object for authentication tests."""
+    return MagicMock(
+        id=1,
+        username="testuser",
+        email="test@example.com",
+        password_hash=hash_password("secure123"),
+        is_active=True,
+    )
 
-# Test get_current_user with valid token and existing user
-def test_get_current_user_valid_token_existing_user(mock_db, mock_verify_token):
-    mock_verify_token.return_value = sample_user.id
-    mock_db.query.return_value.filter.return_value.first.return_value = sample_user
 
-    user_response = get_current_user(db=mock_db, token="validtoken")
+# ----------------------------------------------------------
+# Test: JWT Creation & Verification
+# ----------------------------------------------------------
+def test_create_and_verify_token():
+    """Ensure that JWT tokens are created and verified correctly."""
+    data = {"sub": "1", "username": "testuser"}
+    token = dependencies.create_access_token(data, timedelta(minutes=1))
 
-    assert isinstance(user_response, UserResponse)
-    assert user_response.id == sample_user.id
-    assert user_response.username == sample_user.username
-    assert user_response.email == sample_user.email
-    assert user_response.first_name == sample_user.first_name
-    assert user_response.last_name == sample_user.last_name
-    assert user_response.is_active == sample_user.is_active
-    assert user_response.is_verified == sample_user.is_verified
-    assert user_response.created_at == sample_user.created_at
-    assert user_response.updated_at == sample_user.updated_at
+    # Decode using jose directly
+    decoded = jwt.decode(
+        token,
+        dependencies.SECRET_KEY,
+        algorithms=[dependencies.ALGORITHM],
+    )
 
-    mock_verify_token.assert_called_once_with("validtoken")
-    mock_db.query.assert_called_once_with(User)
-    # Use ANY to ignore the specific BinaryExpression instance
-    mock_db.query.return_value.filter.assert_called_once_with(ANY)
-    mock_db.query.return_value.filter.return_value.first.assert_called_once()
+    assert decoded.get("sub") == "1"
+    assert "exp" in decoded
 
-# Test get_current_user with invalid token
-def test_get_current_user_invalid_token(mock_db, mock_verify_token):
-    mock_verify_token.return_value = None
+    # Verify using helper
+    payload = dependencies.verify_access_token(token)
+    assert payload["sub"] == "1"
 
+
+def test_verify_access_token_invalid():
+    """Ensure that invalid tokens raise HTTP 401."""
     with pytest.raises(HTTPException) as exc_info:
-        get_current_user(db=mock_db, token="invalidtoken")
+        dependencies.verify_access_token("invalid.token.value")
 
     assert exc_info.value.status_code == status.HTTP_401_UNAUTHORIZED
-    assert exc_info.value.detail == "Could not validate credentials"
+    assert "invalid" in exc_info.value.detail.lower()
 
-    mock_verify_token.assert_called_once_with("invalidtoken")
-    mock_db.query.assert_not_called()
 
-# Test get_current_user with valid token but non-existent user
-def test_get_current_user_valid_token_nonexistent_user(mock_db, mock_verify_token):
-    mock_verify_token.return_value = sample_user.id
-    mock_db.query.return_value.filter.return_value.first.return_value = None
+# ----------------------------------------------------------
+# Test: Authenticate User
+# ----------------------------------------------------------
+def test_authenticate_user_valid(mock_db, fake_user):
+    """Verify authenticate_user() succeeds with correct credentials."""
+    # Mock DB lookup
+    with patch("app.crud.get_user_by_username", return_value=fake_user), \
+         patch("app.crud.get_user_by_email", return_value=None):
+
+        user = dependencies.authenticate_user(mock_db, "testuser", "secure123")
+        assert user.username == "testuser"
+        assert user.email == "test@example.com"
+
+
+def test_authenticate_user_invalid_password(mock_db, fake_user):
+    """Verify authenticate_user() raises HTTP 401 for wrong password."""
+    with patch("app.crud.get_user_by_username", return_value=fake_user), \
+         patch("app.crud.get_user_by_email", return_value=None):
+
+        with pytest.raises(HTTPException) as exc_info:
+            dependencies.authenticate_user(mock_db, "testuser", "wrongpass")
+
+        assert exc_info.value.status_code == status.HTTP_401_UNAUTHORIZED
+        assert "invalid username or password" in exc_info.value.detail.lower()
+
+
+def test_authenticate_user_not_found(mock_db):
+    """Verify authenticate_user() raises HTTP 401 when user not found."""
+    with patch("app.crud.get_user_by_username", return_value=None), \
+         patch("app.crud.get_user_by_email", return_value=None):
+
+        with pytest.raises(HTTPException) as exc_info:
+            dependencies.authenticate_user(mock_db, "ghost", "nopass")
+
+        assert exc_info.value.status_code == status.HTTP_401_UNAUTHORIZED
+
+
+# ----------------------------------------------------------
+# Test: get_current_user()
+# ----------------------------------------------------------
+def test_get_current_user_valid_token(mock_db, fake_user):
+    """Verify get_current_user() retrieves user from valid token."""
+    token = dependencies.create_access_token({"sub": str(fake_user.id)})
+
+    # Mock DB query
+    mock_query = MagicMock()
+    mock_query.filter_by.return_value.first.return_value = fake_user
+    mock_db.query.return_value = mock_query
+
+    result = dependencies.get_current_user(token=token, db=mock_db)
+    assert result.username == fake_user.username
+    assert result.email == fake_user.email
+
+
+def test_get_current_user_missing_user_id(mock_db):
+    """Verify token without 'sub' raises HTTP 401."""
+    token = dependencies.create_access_token({})
+    payload = jwt.decode(token, dependencies.SECRET_KEY, algorithms=[dependencies.ALGORITHM])
+    del payload["exp"]  # simulate tampering
+
+    fake_token = jwt.encode(payload, dependencies.SECRET_KEY, algorithm=dependencies.ALGORITHM)
 
     with pytest.raises(HTTPException) as exc_info:
-        get_current_user(db=mock_db, token="validtoken")
+        dependencies.get_current_user(token=fake_token, db=mock_db)
 
     assert exc_info.value.status_code == status.HTTP_401_UNAUTHORIZED
-    assert exc_info.value.detail == "Could not validate credentials"
+    assert "missing user id" in exc_info.value.detail.lower()
 
-    mock_verify_token.assert_called_once_with("validtoken")
-    mock_db.query.assert_called_once_with(User)
-    mock_db.query.return_value.filter.assert_called_once_with(ANY)
-    mock_db.query.return_value.filter.return_value.first.assert_called_once()
 
-# Test get_current_active_user with active user
-def test_get_current_active_user_active(mock_db, mock_verify_token):
-    mock_verify_token.return_value = sample_user.id
-    mock_db.query.return_value.filter.return_value.first.return_value = sample_user
-
-    current_user = get_current_user(db=mock_db, token="validtoken")
-    active_user = get_current_active_user(current_user=current_user)
-
-    assert isinstance(active_user, UserResponse)
-    assert active_user.is_active is True
-
-# Test get_current_active_user with inactive user
-def test_get_current_active_user_inactive(mock_db, mock_verify_token):
-    mock_verify_token.return_value = inactive_user.id
-    mock_db.query.return_value.filter.return_value.first.return_value = inactive_user
-
-    current_user = get_current_user(db=mock_db, token="validtoken")
+def test_get_current_user_user_not_found(mock_db):
+    """Verify get_current_user() raises HTTP 401 if user does not exist."""
+    token = dependencies.create_access_token({"sub": "999"})
+    mock_db.query.return_value.filter_by.return_value.first.return_value = None
 
     with pytest.raises(HTTPException) as exc_info:
-        get_current_active_user(current_user=current_user)
+        dependencies.get_current_user(token=token, db=mock_db)
 
-    assert exc_info.value.status_code == status.HTTP_400_BAD_REQUEST
-    assert exc_info.value.detail == "Inactive user"
+    assert exc_info.value.status_code == status.HTTP_401_UNAUTHORIZED
+    assert "not found" in exc_info.value.detail.lower()

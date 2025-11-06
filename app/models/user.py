@@ -1,133 +1,158 @@
-# app/models/user.py
-from datetime import datetime, timedelta
-import uuid
-from typing import Optional, Dict, Any
+# ----------------------------------------------------------
+# Author: Nandan Kumar
+# Date: 11/05/2025
+# Assignment-10: Secure User Model (Pydantic Validation + Database Testing)
+# File: app/models/user.py
+# ----------------------------------------------------------
+# Description:
+# This module defines the SQLAlchemy User model used for secure
+# authentication in the FastAPI application. It integrates:
+#   • Password hashing and verification
+#   • Pydantic-based validation (schema ↔ model conversion)
+#   • JWT token generation and verification
+#
+# The model is designed for maintainability, testing, and
+# containerized (Docker) deployment as part of Assignment-10.
+# ----------------------------------------------------------
 
-from sqlalchemy import Column, String, DateTime, Boolean
-from sqlalchemy.dialects.postgresql import UUID
-from sqlalchemy.orm import declarative_base
-from sqlalchemy.exc import IntegrityError
-from passlib.context import CryptContext
-from jose import JWTError, jwt
-from pydantic import ValidationError
+from datetime import datetime, timedelta, timezone
+from typing import Optional
 
-from app.schemas.base import UserCreate
-from app.schemas.user import UserResponse, Token
+from jose import jwt, JWTError
+from sqlalchemy import Column, Integer, String, DateTime, Boolean, func
+from app.database import Base
+from app.security import hash_password, verify_password
+from app.schemas.user import UserCreate, UserRead
 
-Base = declarative_base()
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+# ----------------------------------------------------------
+# JWT Configuration (to be moved to .env or config module)
+# ----------------------------------------------------------
+SECRET_KEY = "super_secret_key_123"           # Example key for local use
+ALGORITHM = "HS256"                           # Signing algorithm
+ACCESS_TOKEN_EXPIRE_MINUTES = 30              # Token validity (minutes)
 
-# Move to config
-SECRET_KEY = "your-secret-key"
-ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 30
 
+# ----------------------------------------------------------
+# SQLAlchemy ORM Model
+# ----------------------------------------------------------
 class User(Base):
-    __tablename__ = 'users'
+    """
+    Represents an application user in the database.
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    first_name = Column(String(50), nullable=False)
-    last_name = Column(String(50), nullable=False)
-    email = Column(String(120), unique=True, nullable=False)
-    username = Column(String(50), unique=True, nullable=False)
-    password = Column(String(255), nullable=False)
-    is_active = Column(Boolean, default=True, nullable=False)
-    is_verified = Column(Boolean, default=False, nullable=False)
-    last_login = Column(DateTime, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    Attributes:
+        id (int): Primary key identifier.
+        username (str): Unique username for login.
+        email (str): Unique email address.
+        password_hash (str): Securely hashed user password.
+        is_active (bool): Indicates if the account is active.
+        created_at (datetime): Record creation timestamp.
+        updated_at (datetime): Auto-updated modification timestamp.
+    """
+    __tablename__ = "users"
 
-    def __repr__(self):
-        return f"<User(name={self.first_name} {self.last_name}, email={self.email})>"
+    id = Column(Integer, primary_key=True, index=True)
+    username = Column(String(50), unique=True, nullable=False, index=True)
+    email = Column(String(120), unique=True, nullable=False, index=True)
+    password_hash = Column(String(255), nullable=False)
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
+    # ------------------------------------------------------
+    # Password Management
+    # ------------------------------------------------------
+    def set_password(self, plain_password: str) -> None:
+        """
+        Hashes a plain-text password and stores it in the model.
+
+        Args:
+            plain_password (str): Raw user password from input.
+        """
+        self.password_hash = hash_password(plain_password)
+
+    def check_password(self, plain_password: str) -> bool:
+        """
+        Compares a plain-text password with the stored hash.
+
+        Returns:
+            bool: True if password matches, False otherwise.
+        """
+        return verify_password(plain_password, self.password_hash)
+
+    # ------------------------------------------------------
+    # Pydantic Schema Integration
+    # ------------------------------------------------------
+    @classmethod
+    def from_schema(cls, schema: UserCreate) -> "User":
+        """
+        Creates a new User ORM instance from validated Pydantic input.
+
+        Args:
+            schema (UserCreate): Pydantic model containing validated user data.
+
+        Returns:
+            User: SQLAlchemy ORM instance ready to be added to the DB session.
+        """
+        user = cls(
+            username=schema.username,
+            email=schema.email,
+            is_active=True
+        )
+        user.set_password(schema.password)
+        return user
+
+    def to_schema(self) -> UserRead:
+        """
+        Converts this ORM instance into a Pydantic response schema.
+
+        Returns:
+            UserRead: Pydantic object representing safe public data.
+        """
+        return UserRead.model_validate(self)
+
+    # ------------------------------------------------------
+    # JWT Token Management
+    # ------------------------------------------------------
     @staticmethod
-    def hash_password(password: str) -> str:
-        """Hash a password using bcrypt."""
-        return pwd_context.hash(password)
+    def create_access_token(user_id: int, expires_delta: Optional[timedelta] = None) -> str:
+        """
+        Generates a signed JWT access token for a given user ID.
 
-    def verify_password(self, plain_password: str) -> bool:
-        """Verify a plain password against the hashed password."""
-        return pwd_context.verify(plain_password, self.password)
+        Args:
+            user_id (int): The user’s unique identifier.
+            expires_delta (timedelta, optional): Custom expiration time.
 
-    @staticmethod
-    def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
-        """Create a JWT access token."""
-        to_encode = data.copy()
-        expire = datetime.utcnow() + (expires_delta or timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES))
-        to_encode.update({"exp": expire})
+        Returns:
+            str: Encoded JWT token string.
+        """
+        expire = datetime.now(timezone.utc) + (expires_delta or timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES))
+        to_encode = {"sub": str(user_id), "exp": expire}
         return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
 
     @staticmethod
-    def verify_token(token: str) -> Optional[UUID]:
-        """Verify and decode a JWT token."""
+    def verify_token(token: str) -> Optional[int]:
+        """
+        Validates a JWT token and extracts the embedded user ID.
+
+        Args:
+            token (str): Encoded JWT token from the client.
+
+        Returns:
+            Optional[int]: User ID if the token is valid, otherwise None.
+        """
         try:
             payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-            user_id = payload.get("sub")
-            return uuid.UUID(user_id) if user_id else None
-        except (JWTError, ValueError):
+            return int(payload.get("sub")) if payload.get("sub") else None
+        except JWTError:
             return None
 
-    @classmethod
-    def register(cls, db, user_data: Dict[str, Any]) -> "User":
-        """Register a new user with validation."""
-        try:
-            # Validate password length first
-            password = user_data.get('password', '')
-            if len(password) < 6:  # Strictly less than 6 characters
-                raise ValueError("Password must be at least 6 characters long")
-            
-            # Check if email/username exists
-            existing_user = db.query(cls).filter(
-                (cls.email == user_data.get('email')) |
-                (cls.username == user_data.get('username'))
-            ).first()
-            
-            if existing_user:
-                raise ValueError("Username or email already exists")
-
-            # Validate using Pydantic schema
-            user_create = UserCreate.model_validate(user_data)
-            
-            # Create new user instance
-            new_user = cls(
-                first_name=user_create.first_name,
-                last_name=user_create.last_name,
-                email=user_create.email,
-                username=user_create.username,
-                password=cls.hash_password(user_create.password),
-                is_active=True,
-                is_verified=False
-            )
-            
-            db.add(new_user)
-            db.flush()
-            return new_user
-            
-        except ValidationError as e:
-            raise ValueError(str(e)) # pragma: no cover
-        except ValueError as e:
-            raise e
-
-    @classmethod
-    def authenticate(cls, db, username: str, password: str) -> Optional[Dict[str, Any]]:
-        """Authenticate user and return token with user data."""
-        user = db.query(cls).filter(
-            (cls.username == username) | (cls.email == username)
-        ).first()
-
-        if not user or not user.verify_password(password):
-            return None # pragma: no cover
-
-        user.last_login = datetime.utcnow()
-        db.commit()
-
-        # Create token response using Pydantic models
-        user_response = UserResponse.model_validate(user)
-        token_response = Token(
-            access_token=cls.create_access_token({"sub": str(user.id)}),
-            token_type="bearer",
-            user=user_response
+    # ------------------------------------------------------
+    # Representation Helper
+    # ------------------------------------------------------
+    def __repr__(self) -> str:
+        """Developer-friendly string representation."""
+        return (
+            f"<User(username='{self.username}', "
+            f"email='{self.email}', active={self.is_active})>"
         )
-
-        return token_response.model_dump()

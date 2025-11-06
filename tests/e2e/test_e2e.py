@@ -1,73 +1,144 @@
-# tests/e2e/test_e2e.py
+# ----------------------------------------------------------
+# Author: Nandan Kumar
+# Date: 11/05/2025
+# Assignment-10: Secure User Model (Pydantic Validation + Database Testing)
+# File: tests/e2e/test_e2e.py
+# ----------------------------------------------------------
+# Description:
+# End-to-End (E2E) test suite for the FastAPI application.
+# Uses Playwright to simulate user actions and verify that
+# the web interface, backend API, and PostgreSQL database
+# operate correctly together in the Docker environment.
+#
+# Covers:
+#   • Homepage and health route accessibility
+#   • Calculator arithmetic functionality
+#   • Error handling for invalid inputs
+#   • Backend stability while DB and API layers run together
+# ----------------------------------------------------------
 
-import pytest  # Import the pytest framework for writing and running tests
+import pytest
+from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
 
-# The following decorators and functions define E2E tests for the FastAPI calculator application.
+BASE_URL = "http://localhost:8000"
+
+
+# ----------------------------------------------------------
+# Fixture: Launch Browser Once per Module
+# ----------------------------------------------------------
+@pytest.fixture(scope="module")
+def browser():
+    """Launch a headless Chromium instance for all E2E tests."""
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True)
+        yield browser
+        browser.close()
+
+
+@pytest.fixture
+def page(browser):
+    """Provide a fresh browser page for each test."""
+    context = browser.new_context()
+    page = context.new_page()
+    yield page
+    context.close()
+
+
+# ----------------------------------------------------------
+# Test: Application Root Endpoint
+# ----------------------------------------------------------
+@pytest.mark.e2e
+def test_homepage_loads(page):
+    """Verify homepage renders and FastAPI app responds correctly."""
+    page.goto(BASE_URL)
+    title_text = page.text_content("h1")
+    assert title_text and "FastAPI" in title_text, "Homepage failed to load or incorrect title."
+
+
+# ----------------------------------------------------------
+# Calculator Functional Tests
+# ----------------------------------------------------------
+@pytest.mark.e2e
+def test_addition(page):
+    """Verify adding two numbers returns correct result."""
+    page.goto(BASE_URL)
+    page.fill("#a", "5")
+    page.fill("#b", "7")
+    page.click("text=Add")
+    page.wait_for_selector("#result")
+    assert "Result: 12" in page.text_content("#result")
+
 
 @pytest.mark.e2e
-def test_hello_world(page, fastapi_server):
-    """
-    Test that the homepage displays "Hello World".
+def test_subtraction(page):
+    """Verify subtraction displays correct result."""
+    page.goto(BASE_URL)
+    page.fill("#a", "15")
+    page.fill("#b", "4")
+    page.click("text=Subtract")
+    page.wait_for_selector("#result")
+    assert "Result: 11" in page.text_content("#result")
 
-    This test verifies that when a user navigates to the homepage of the application,
-    the main header (`<h1>`) correctly displays the text "Hello World". This ensures
-    that the server is running and serving the correct template.
-    """
-    # Navigate the browser to the homepage URL of the FastAPI application.
-    page.goto('http://localhost:8000')
-    
-    # Use an assertion to check that the text within the first <h1> tag is exactly "Hello World".
-    # If the text does not match, the test will fail.
-    assert page.inner_text('h1') == 'Hello World'
 
 @pytest.mark.e2e
-def test_calculator_add(page, fastapi_server):
-    """
-    Test the addition functionality of the calculator.
+def test_multiplication(page):
+    """Verify multiplication displays correct result."""
+    page.goto(BASE_URL)
+    page.fill("#a", "6")
+    page.fill("#b", "3")
+    page.click("text=Multiply")
+    page.wait_for_selector("#result")
+    assert "Result: 18" in page.text_content("#result")
 
-    This test simulates a user performing an addition operation using the calculator
-    on the frontend. It fills in two numbers, clicks the "Add" button, and verifies
-    that the result displayed is correct.
-    """
-    # Navigate the browser to the homepage URL of the FastAPI application.
-    page.goto('http://localhost:8000')
-    
-    # Fill in the first number input field (with id 'a') with the value '10'.
-    page.fill('#a', '10')
-    
-    # Fill in the second number input field (with id 'b') with the value '5'.
-    page.fill('#b', '5')
-    
-    # Click the button that has the exact text "Add". This triggers the addition operation.
-    page.click('button:text("Add")')
-    
-    # Use an assertion to check that the text within the result div (with id 'result') is exactly "Result: 15".
-    # This verifies that the addition operation was performed correctly and the result is displayed as expected.
-    assert page.inner_text('#result') == 'Result: 15'
 
 @pytest.mark.e2e
-def test_calculator_divide_by_zero(page, fastapi_server):
-    """
-    Test the divide by zero functionality of the calculator.
+def test_division(page):
+    """Verify division displays correct result."""
+    page.goto(BASE_URL)
+    page.fill("#a", "20")
+    page.fill("#b", "5")
+    page.click("text=Divide")
+    page.wait_for_selector("#result")
+    assert "Result: 4" in page.text_content("#result")
 
-    This test simulates a user attempting to divide a number by zero using the calculator.
-    It fills in the numbers, clicks the "Divide" button, and verifies that the appropriate
-    error message is displayed. This ensures that the application correctly handles invalid
-    operations and provides meaningful feedback to the user.
-    """
-    # Navigate the browser to the homepage URL of the FastAPI application.
-    page.goto('http://localhost:8000')
-    
-    # Fill in the first number input field (with id 'a') with the value '10'.
-    page.fill('#a', '10')
-    
-    # Fill in the second number input field (with id 'b') with the value '0', attempting to divide by zero.
-    page.fill('#b', '0')
-    
-    # Click the button that has the exact text "Divide". This triggers the division operation.
-    page.click('button:text("Divide")')
-    
-    # Use an assertion to check that the text within the result div (with id 'result') is exactly
-    # "Error: Cannot divide by zero!". This verifies that the application handles division by zero
-    # gracefully and displays the correct error message to the user.
-    assert page.inner_text('#result') == 'Error: Cannot divide by zero!'
+
+# ----------------------------------------------------------
+# Negative & Error Case Tests
+# ----------------------------------------------------------
+@pytest.mark.e2e
+def test_divide_by_zero(page):
+    """Verify dividing by zero displays an error message."""
+    page.goto(BASE_URL)
+    page.fill("#a", "10")
+    page.fill("#b", "0")
+    page.click("text=Divide")
+    try:
+        page.wait_for_selector("#result", timeout=3000)
+    except PlaywrightTimeoutError:
+        pytest.fail("Result element not found after division by zero.")
+    assert "Cannot divide by zero" in page.text_content("#result")
+
+
+@pytest.mark.e2e
+def test_invalid_input(page):
+    """Verify non-numeric input triggers an error message."""
+    page.goto(BASE_URL)
+    page.fill("#a", "abc")
+    page.fill("#b", "3")
+    page.click("text=Add")
+    page.wait_for_selector("#result")
+    assert "Error" in page.text_content("#result")
+
+
+@pytest.mark.e2e
+def test_missing_input(page):
+    """Verify empty inputs trigger a validation error message."""
+    page.goto(BASE_URL)
+    page.fill("#a", "")
+    page.fill("#b", "")
+    page.click("text=Add")
+    page.wait_for_selector("#result")
+    assert "Error" in page.text_content("#result")
+
+
+

@@ -1,65 +1,86 @@
+# ----------------------------------------------------------
+# Author: Nandan Kumar
+# Date: 11/05/2025
+# Assignment-10: Secure User Model (Pydantic Validation + Database Testing)
+# File: app/schemas/user.py
+# ----------------------------------------------------------
+# Description:
+# Defines user-related Pydantic schemas for validation,
+# API serialization, and JWT token exchange.
+# Now upgraded to use UUIDs for unique user identification.
+# ----------------------------------------------------------
+
+from datetime import datetime
 from typing import Optional
 from uuid import UUID
-from datetime import datetime
-from pydantic import BaseModel, EmailStr, ConfigDict
+from pydantic import BaseModel, ConfigDict
+from app.schemas.base import UserBase, UserCreate, UserLogin
 
-class UserResponse(BaseModel):
-    """Schema for user response data"""
+
+# ----------------------------------------------------------
+# Schema: UserRead (API-Safe Response)
+# ----------------------------------------------------------
+class UserRead(UserBase):
+    """
+    Represents user data returned in API responses.
+    Uses UUID for unique, non-sequential identification.
+    Excludes password and other sensitive information.
+    """
     id: UUID
-    username: str
-    email: EmailStr
-    first_name: str
-    last_name: str
     is_active: bool
-    is_verified: bool
-    created_at: datetime
-    updated_at: datetime
-
-    model_config = ConfigDict(from_attributes=True)  # Enable mapping from ORM objects
-
-
-class Token(BaseModel):
-    """Schema for authentication token response"""
-    access_token: str
-    token_type: str = "bearer"
-    user: UserResponse
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
 
     model_config = ConfigDict(
         json_schema_extra={
             "example": {
-                "access_token": "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9...",
+                "id": "123e4567-e89b-12d3-a456-426614174000",
+                "first_name": "Nandan",
+                "last_name": "Kumar",
+                "username": "nandan123",
+                "email": "nandan@example.com",
+                "is_active": True,
+                "created_at": "2025-11-05T10:00:00Z",
+                "updated_at": "2025-11-05T11:00:00Z",
+            }
+        }
+    )
+
+
+# ----------------------------------------------------------
+# Schema: Token (JWT Response)
+# ----------------------------------------------------------
+class Token(BaseModel):
+    """
+    Returned after successful authentication.
+    Contains a JWT access token and associated user data.
+    """
+    access_token: str
+    token_type: str = "bearer"
+    user: UserRead
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
                 "token_type": "bearer",
                 "user": {
                     "id": "123e4567-e89b-12d3-a456-426614174000",
-                    "username": "johndoe",
-                    "email": "john.doe@example.com",
-                    "first_name": "John",
-                    "last_name": "Doe",
+                    "username": "nandan123",
+                    "email": "nandan@example.com",
                     "is_active": True,
-                    "is_verified": False,
-                    "created_at": "2025-01-01T00:00:00",
-                    "updated_at": "2025-01-08T12:00:00",
                 },
             }
         }
     )
 
 
+# ----------------------------------------------------------
+# Schema: TokenData (Decoded JWT Payload)
+# ----------------------------------------------------------
 class TokenData(BaseModel):
-    """Schema for JWT token payload"""
+    """
+    Represents data extracted from a decoded JWT token.
+    Used internally to identify the authenticated user.
+    """
     user_id: Optional[UUID] = None
-
-
-class UserLogin(BaseModel):
-    """Schema for user login"""
-    username: str
-    password: str
-
-    model_config = ConfigDict(
-        json_schema_extra={
-            "example": {
-                "username": "johndoe123",
-                "password": "SecurePass123",
-            }
-        }
-    )

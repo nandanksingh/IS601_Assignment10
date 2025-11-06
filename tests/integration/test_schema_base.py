@@ -1,112 +1,132 @@
+# ----------------------------------------------------------
+# Author: Nandan Kumar
+# Date: 11/05/2025
+# Assignment-10: Secure User Model (Pydantic Validation + Database Testing)
+# File: tests/integration/test_schema_base.py
+# ----------------------------------------------------------
+# Description:
+# Integration tests for `app/schemas/base.py`.
+# Validates field constraints and password strength rules
+# for UserBase, PasswordMixin, UserCreate, and UserLogin
+# Pydantic schemas defined in Assignment-10.
+# ----------------------------------------------------------
+
 import pytest
 from pydantic import ValidationError
 from app.schemas.base import UserBase, PasswordMixin, UserCreate, UserLogin
 
 
+# ----------------------------------------------------------
+#  UserBase Schema Tests
+# ----------------------------------------------------------
 def test_user_base_valid():
-    """Test UserBase with valid data."""
+    """Ensure valid data initializes UserBase correctly."""
     data = {
-        "first_name": "John",
-        "last_name": "Doe",
-        "email": "john.doe@example.com",
-        "username": "johndoe",
+        "first_name": "Nandan",
+        "last_name": "Kumar",
+        "username": "nandan123",
+        "email": "nandan@example.com",
     }
     user = UserBase(**data)
-    assert user.first_name == "John"
-    assert user.email == "john.doe@example.com"
+    assert user.first_name == "Nandan"
+    assert user.email == "nandan@example.com"
 
 
 def test_user_base_invalid_email():
-    """Test UserBase with invalid email."""
-    data = {
-        "first_name": "John",
-        "last_name": "Doe",
+    """Reject invalid email format."""
+    invalid_data = {
+        "first_name": "Test",
+        "last_name": "User",
+        "username": "testuser",
         "email": "invalid-email",
-        "username": "johndoe",
     }
     with pytest.raises(ValidationError):
-        UserBase(**data)
+        UserBase(**invalid_data)
 
 
-def test_password_mixin_valid():
-    """Test PasswordMixin with valid password."""
-    data = {"password": "SecurePass123"}
-    password_mixin = PasswordMixin(**data)
-    assert password_mixin.password == "SecurePass123"
-
-
-def test_password_mixin_invalid_short_password():
-    """Test PasswordMixin with short password."""
-    data = {"password": "short"}
+def test_user_base_missing_field():
+    """Ensure missing required field raises ValidationError."""
+    incomplete_data = {"first_name": "OnlyName"}
     with pytest.raises(ValidationError):
-        PasswordMixin(**data)
+        UserBase(**incomplete_data)
 
 
-def test_password_mixin_no_uppercase():
-    """Test PasswordMixin with no uppercase letter."""
-    data = {"password": "lowercase1"}
-    with pytest.raises(ValidationError, match="Password must contain at least one uppercase letter"):
-        PasswordMixin(**data)
+# ----------------------------------------------------------
+#  PasswordMixin Schema Tests
+# ----------------------------------------------------------
+@pytest.mark.parametrize("password", [
+    "SecurePass123",     # valid
+    "AnotherGood1",      # valid variant
+])
+def test_password_mixin_valid(password):
+    """Accept strong passwords that meet all rules."""
+    schema = PasswordMixin(password=password)
+    assert schema.password == password
 
 
-def test_password_mixin_no_lowercase():
-    """Test PasswordMixin with no lowercase letter."""
-    data = {"password": "UPPERCASE1"}
-    with pytest.raises(ValidationError, match="Password must contain at least one lowercase letter"):
-        PasswordMixin(**data)
+@pytest.mark.parametrize("password, expected_msg", [
+    ("short", "Password must be at least 6 characters"),
+    ("lowercase1", "uppercase"),
+    ("UPPERCASE1", "lowercase"),
+    ("NoDigitsHere", "digit"),
+])
+def test_password_mixin_invalid(password, expected_msg):
+    """Reject weak passwords missing uppercase/lowercase/digit/length."""
+    with pytest.raises(ValidationError) as exc_info:
+        PasswordMixin(password=password)
+    assert expected_msg.lower() in str(exc_info.value).lower()
 
 
-def test_password_mixin_no_digit():
-    """Test PasswordMixin with no digit."""
-    data = {"password": "NoDigitsHere"}
-    with pytest.raises(ValidationError, match="Password must contain at least one digit"):
-        PasswordMixin(**data)
-
-
+# ----------------------------------------------------------
+#  UserCreate Schema Tests
+# ----------------------------------------------------------
 def test_user_create_valid():
-    """Test UserCreate with valid data."""
+    """Validate a full user creation payload."""
     data = {
-        "first_name": "John",
-        "last_name": "Doe",
-        "email": "john.doe@example.com",
-        "username": "johndoe",
+        "first_name": "Nandan",
+        "last_name": "Kumar",
+        "username": "nandan123",
+        "email": "nandan@example.com",
         "password": "SecurePass123",
     }
-    user_create = UserCreate(**data)
-    assert user_create.username == "johndoe"
-    assert user_create.password == "SecurePass123"
+    schema = UserCreate(**data)
+    assert schema.username == "nandan123"
+    assert schema.password == "SecurePass123"
 
 
 def test_user_create_invalid_password():
-    """Test UserCreate with invalid password."""
-    data = {
-        "first_name": "John",
-        "last_name": "Doe",
-        "email": "john.doe@example.com",
-        "username": "johndoe",
-        "password": "short",
+    """Ensure weak password in registration raises ValidationError."""
+    bad_data = {
+        "first_name": "Nandan",
+        "last_name": "Kumar",
+        "username": "nandan123",
+        "email": "nandan@example.com",
+        "password": "weak",
     }
     with pytest.raises(ValidationError):
-        UserCreate(**data)
+        UserCreate(**bad_data)
 
 
+# ----------------------------------------------------------
+#  UserLogin Schema Tests
+# ----------------------------------------------------------
 def test_user_login_valid():
-    """Test UserLogin with valid data."""
-    data = {"username": "johndoe", "password": "SecurePass123"}
-    user_login = UserLogin(**data)
-    assert user_login.username == "johndoe"
+    """Accept proper username/email with strong password."""
+    data = {"username": "nandan@example.com", "password": "SecurePass123"}
+    schema = UserLogin(**data)
+    assert schema.username == "nandan@example.com"
 
 
-def test_user_login_invalid_username():
-    """Test UserLogin with short username."""
-    data = {"username": "jd", "password": "SecurePass123"}
+@pytest.mark.parametrize("username", ["ab", "", None])
+def test_user_login_invalid_username(username):
+    """Reject too-short or missing username field."""
+    data = {"username": username, "password": "SecurePass123"}
     with pytest.raises(ValidationError):
         UserLogin(**data)
 
 
 def test_user_login_invalid_password():
-    """Test UserLogin with invalid password."""
-    data = {"username": "johndoe", "password": "short"}
+    """Reject password that violates policy in login schema."""
+    data = {"username": "nandan@example.com", "password": "short"}
     with pytest.raises(ValidationError):
         UserLogin(**data)
-

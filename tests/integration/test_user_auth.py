@@ -1,196 +1,124 @@
-# tests/integration/test_user_auth.py
+# ----------------------------------------------------------
+# Author: Nandan Kumar
+# Date: 11/05/2025
+# Assignment-10: Secure User Model (Pydantic Validation + Database Testing)
+# File: tests/integration/test_user_auth.py
+# ----------------------------------------------------------
+# Description:
+# Integration tests for the User model and authentication logic.
+# Covers:
+#   • Password hashing & verification
+#   • Unique email/username constraints
+#   • JWT creation and verification
+#   • SQLAlchemy ORM persistence
+# ----------------------------------------------------------
 
 import pytest
-from uuid import UUID
-import pydantic_core
 from sqlalchemy.exc import IntegrityError
 from app.models.user import User
+from app.security import hash_password, verify_password
+from app.database import Base, engine, SessionLocal
 
-def test_password_hashing(db_session, fake_user_data):
-    """Test password hashing and verification functionality"""
-    original_password = "TestPass123"  # Use known password for test
-    hashed = User.hash_password(original_password)
-    
-    user = User(
-        first_name=fake_user_data['first_name'],
-        last_name=fake_user_data['last_name'],
-        email=fake_user_data['email'],
-        username=fake_user_data['username'],
-        password=hashed
-    )
-    
-    assert user.verify_password(original_password) is True
-    assert user.verify_password("WrongPass123") is False
-    assert hashed != original_password
 
-def test_user_registration(db_session, fake_user_data):
-    """Test user registration process"""
-    fake_user_data['password'] = "TestPass123"
-    
-    user = User.register(db_session, fake_user_data)
-    db_session.commit()
-    
-    assert user.first_name == fake_user_data['first_name']
-    assert user.last_name == fake_user_data['last_name']
-    assert user.email == fake_user_data['email']
-    assert user.username == fake_user_data['username']
-    assert user.is_active is True
-    assert user.is_verified is False
-    assert user.verify_password("TestPass123") is True
+# ----------------------------------------------------------
+# Fixtures
+# ----------------------------------------------------------
+@pytest.fixture(scope="module", autouse=True)
+def setup_database():
+    """Create test tables before running tests and drop after."""
+    Base.metadata.drop_all(bind=engine)
+    Base.metadata.create_all(bind=engine)
+    yield
+    Base.metadata.drop_all(bind=engine)
 
-def test_duplicate_user_registration(db_session):
-    """Test registration with duplicate email/username"""
-    # First user data
-    user1_data = {
-        "first_name": "Test",
-        "last_name": "User1",
-        "email": "unique.test@example.com",
-        "username": "uniqueuser1",
-        "password": "TestPass123"
+
+@pytest.fixture
+def db_session():
+    """Provide an isolated SQLAlchemy session for each test."""
+    session = SessionLocal()
+    try:
+        yield session
+    finally:
+        session.rollback()
+        session.close()
+
+
+@pytest.fixture
+def user_data():
+    """Return reusable fake user data."""
+    return {
+        "username": "testuser",
+        "email": "test@example.com",
+        "password_hash": hash_password("SecurePass123"),
     }
-    
-    # Second user data with same email
-    user2_data = {
-        "first_name": "Test",
-        "last_name": "User2",
-        "email": "unique.test@example.com",  # Same email
-        "username": "uniqueuser2",
-        "password": "TestPass123"
-    }
-    
-    # Register first user
-    first_user = User.register(db_session, user1_data)
+
+
+# ----------------------------------------------------------
+#  Password Hashing and Verification
+# ----------------------------------------------------------
+def test_password_hashing_and_verification():
+    """Verify bcrypt hashing and validation functions."""
+    raw_password = "SecurePass123"
+    hashed = hash_password(raw_password)
+    assert hashed != raw_password
+    assert verify_password(raw_password, hashed)
+    assert not verify_password("WrongPass", hashed)
+
+
+# ----------------------------------------------------------
+#  User ORM Behavior
+# ----------------------------------------------------------
+def test_user_creation_and_persistence(db_session, user_data):
+    """Create and persist a new user in the database."""
+    user = User(**user_data)
+    db_session.add(user)
     db_session.commit()
-    db_session.refresh(first_user)
-    
-    # Try to register second user with same email
-    with pytest.raises(ValueError, match="Username or email already exists"):
-        User.register(db_session, user2_data)
 
-def test_user_authentication(db_session, fake_user_data):
-    """Test user authentication and token generation"""
-    # Use fake_user_data from fixture
-    fake_user_data['password'] = "TestPass123"
-    user = User.register(db_session, fake_user_data)
+    fetched = db_session.query(User).filter_by(username="testuser").first()
+    assert fetched is not None
+    assert fetched.username == "testuser"
+    assert fetched.email == "test@example.com"
+    assert verify_password("SecurePass123", fetched.password_hash)
+
+
+def test_unique_username_email_constraint(db_session, user_data):
+    """Enforce unique username and email constraints."""
+    user1 = User(**user_data)
+    db_session.add(user1)
     db_session.commit()
-    
-    # Test successful authentication
-    auth_result = User.authenticate(
-        db_session,
-        fake_user_data['username'],
-        "TestPass123"
-    )
-    
-    assert auth_result is not None
-    assert "access_token" in auth_result
-    assert "token_type" in auth_result
-    assert auth_result["token_type"] == "bearer"
-    assert "user" in auth_result
 
-def test_user_last_login_update(db_session, fake_user_data):
-    """Test that last_login is updated on authentication"""
-    fake_user_data['password'] = "TestPass123"
-    user = User.register(db_session, fake_user_data)
-    db_session.commit()
-    
-    # Authenticate and check last_login
-    assert user.last_login is None
-    auth_result = User.authenticate(db_session, fake_user_data['username'], "TestPass123")
-    db_session.refresh(user)
-    assert user.last_login is not None
+    duplicate = User(**user_data)
+    db_session.add(duplicate)
+    with pytest.raises(IntegrityError):
+        db_session.commit()
+    db_session.rollback()
 
-def test_unique_email_username(db_session):
-    """Test uniqueness constraints for email and username"""
-    # Create first user with specific test data
-    user1_data = {
-        "first_name": "Test",
-        "last_name": "User1",
-        "email": "unique_test@example.com",
-        "username": "uniqueuser",
-        "password": "TestPass123"
-    }
-    
-    # Register and commit first user
-    User.register(db_session, user1_data)
-    db_session.commit()
-    
-    # Try to create user with same email
-    user2_data = {
-        "first_name": "Test",
-        "last_name": "User2",
-        "email": "unique_test@example.com",  # Same email
-        "username": "differentuser",
-        "password": "TestPass123"
-    }
-    
-    with pytest.raises(ValueError, match="Username or email already exists"):
-        User.register(db_session, user2_data)
 
-def test_short_password_registration(db_session):
-    """Test that registration fails with a short password"""
-    # Prepare test data with a 5-character password
-    test_data = {
-        "first_name": "Password",
-        "last_name": "Test",
-        "email": "short.pass@example.com",
-        "username": "shortpass",
-        "password": "Shor1"  # 5 characters, should fail
-    }
-    
-    # Attempt registration with short password
-    with pytest.raises(ValueError, match="Password must be at least 6 characters long"):
-        User.register(db_session, test_data)
+# ----------------------------------------------------------
+#  JWT Token Handling
+# ----------------------------------------------------------
+def test_jwt_token_creation_and_verification():
+    """Ensure JWT token correctly encodes and decodes user ID."""
+    token = User.create_token(user_id=42)
+    decoded_user_id = User.verify_token(token)
+    assert decoded_user_id == 42
 
-def test_invalid_token():
-    """Test that invalid tokens are rejected"""
-    invalid_token = "invalid.token.string"
-    result = User.verify_token(invalid_token)
+
+def test_invalid_token_rejected():
+    """Return None when verifying invalid token string."""
+    invalid = "abc.def.ghi"
+    result = User.verify_token(invalid)
     assert result is None
 
-def test_token_creation_and_verification(db_session, fake_user_data):
-    """Test token creation and verification"""
-    fake_user_data['password'] = "TestPass123"
-    user = User.register(db_session, fake_user_data)
+
+# ----------------------------------------------------------
+#  Model Representation
+# ----------------------------------------------------------
+def test_user_model_repr(db_session, user_data):
+    """Check __repr__ returns readable format."""
+    user = User(**user_data)
+    db_session.add(user)
     db_session.commit()
-    
-    # Create token
-    token = User.create_access_token({"sub": str(user.id)})
-    
-    # Verify token
-    decoded_user_id = User.verify_token(token)
-    assert decoded_user_id == user.id
-
-def test_authenticate_with_email(db_session, fake_user_data):
-    """Test authentication using email instead of username"""
-    fake_user_data['password'] = "TestPass123"
-    user = User.register(db_session, fake_user_data)
-    db_session.commit()
-    
-    # Test authentication with email
-    auth_result = User.authenticate(
-        db_session,
-        fake_user_data['email'],  # Using email instead of username
-        "TestPass123"
-    )
-    
-    assert auth_result is not None
-    assert "access_token" in auth_result
-
-def test_user_model_representation(test_user):
-    """Test the string representation of User model"""
-    expected = f"<User(name={test_user.first_name} {test_user.last_name}, email={test_user.email})>"
-    assert str(test_user) == expected
-
-def test_missing_password_registration(db_session):
-    """Test that registration fails when no password is provided."""
-    test_data = {
-        "first_name": "NoPassword",
-        "last_name": "Test",
-        "email": "no.password@example.com",
-        "username": "nopassworduser",
-        # Password is missing
-    }
-    
-    # Adjust the expected error message
-    with pytest.raises(ValueError, match="Password must be at least 6 characters long"):
-        User.register(db_session, test_data)
+    repr_str = repr(user)
+    assert "username='testuser'" in repr_str
+    assert "email='test@example.com'" in repr_str

@@ -1,7 +1,62 @@
+# ----------------------------------------------------------
+# Author: Nandan Kumar
+# Date: 11/05/2025
+# Assignment-10: Secure User Model, Pydantic Validation, and Docker Testing
+# File: .gitignore
+# ----------------------------------------------------------
+# Description:
+# Excludes unnecessary or auto-generated files from version control.
+# Prevents Python cache, test coverage data, Docker volumes, and
+# local environment files from being pushed to GitHub.
+# ----------------------------------------------------------
+
+# ----------------------------------------------------------
+# Python Environments & Cache
+# ----------------------------------------------------------
 venv/
+.env
 __pycache__/
 *.pyc
-.DS_Store
+*.pyo
+*.pyd
+
+# ----------------------------------------------------------
+# Testing Artifacts
+# ----------------------------------------------------------
 .coverage
-.pytest_cache
-htmlcov
+htmlcov/
+.pytest_cache/
+.mypy_cache/
+.tox/
+.cache/
+
+# ----------------------------------------------------------
+# Logs & Reports
+# ----------------------------------------------------------
+*.log
+*.pid
+*.out
+.trivy-results.json
+.trivyignore
+
+# ----------------------------------------------------------
+# macOS & IDE Files
+# ----------------------------------------------------------
+.DS_Store
+.idea/
+
+# ----------------------------------------------------------
+# Docker & Database Files
+# ----------------------------------------------------------
+*.db
+*.sqlite3
+postgres_data/
+pgadmin_data/
+docker-compose.override.yml
+*.local.yml
+
+# ----------------------------------------------------------
+# Node & Playwright (UI Testing)
+# ----------------------------------------------------------
+node_modules/
+playwright-report/

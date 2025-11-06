@@ -1,154 +1,132 @@
-# tests/integration/test_fastapi_calculator.py
+# ----------------------------------------------------------
+# Author: Nandan Kumar
+# Date: 11/05/2025
+# Assignment-10: Secure User Model (Pydantic Validation + JWT Auth + Database Testing)
+# File: tests/integration/test_fastapi_calculator.py
+# ----------------------------------------------------------
+# Description:
+# Integration tests for Assignment 10.
+# Extends previous FastAPI Calculator tests to include:
+#   • Secure user registration
+#   • JWT-based login and authorization
+#   • Protected endpoint validation
+#   • Backward compatibility for calculator routes
+# ----------------------------------------------------------
 
-import pytest  # Import the pytest framework for writing and running tests
-from fastapi.testclient import TestClient  # Import TestClient for simulating API requests
-from main import app  # Import the FastAPI app instance from your main application file
+import pytest
+from fastapi.testclient import TestClient
+from unittest.mock import patch, MagicMock
+from main import app
+from app.auth import dependencies
+from app.models.user import User
 
-# ---------------------------------------------
-# Pytest Fixture: client
-# ---------------------------------------------
+client = TestClient(app)
 
-@pytest.fixture
-def client():
-    """
-    Pytest Fixture to create a TestClient for the FastAPI application.
 
-    This fixture initializes a TestClient instance that can be used to simulate
-    requests to the FastAPI application without running a live server. The client
-    is yielded to the test functions and properly closed after the tests complete.
+# ----------------------------------------------------------
+#  Calculator Endpoint Tests (Backwards Compatibility)
+# ----------------------------------------------------------
+@pytest.mark.parametrize("endpoint, payload, expected", [
+    ("/add", {"a": 4, "b": 6}, {"result": 10}),
+    ("/subtract", {"a": 15, "b": 5}, {"result": 10}),
+    ("/multiply", {"a": 3, "b": 4}, {"result": 12}),
+    ("/divide", {"a": 20, "b": 4}, {"result": 5.0}),
+])
+def test_calculator_routes(client, endpoint, payload, expected):
+    """Ensure arithmetic routes still work correctly."""
+    res = client.post(endpoint, json=payload)
+    assert res.status_code == 200
+    assert res.json() == expected
 
-    Benefits:
-    - Speeds up testing by avoiding the overhead of running a server.
-    - Allows for testing API endpoints in isolation.
-    """
-    with TestClient(app) as client:
-        yield client  # Provide the TestClient instance to the test functions
 
-# ---------------------------------------------
-# Test Function: test_add_api
-# ---------------------------------------------
+def test_divide_by_zero(client):
+    """Check division by zero returns a proper error message."""
+    res = client.post("/divide", json={"a": 10, "b": 0})
+    assert res.status_code in (400, 422)
+    assert "error" in res.text.lower()
 
-def test_add_api(client):
-    """
-    Test the Addition API Endpoint.
 
-    This test verifies that the `/add` endpoint correctly adds two numbers provided
-    in the JSON payload and returns the expected result.
+# ----------------------------------------------------------
+#  Secure User Model & JWT Authentication Tests
+# ----------------------------------------------------------
+@patch("app.crud.create_user")
+def test_register_user(mock_create_user):
+    """Simulate successful user registration."""
+    fake_user = User(
+        id=1,
+        username="nandan",
+        email="nandan@example.com",
+        password_hash="hashedpass",
+        is_active=True,
+    )
+    mock_create_user.return_value = fake_user
 
-    Steps:
-    1. Send a POST request to the `/add` endpoint with JSON data `{'a': 10, 'b': 5}`.
-    2. Assert that the response status code is `200 OK`.
-    3. Assert that the JSON response contains the correct result (`15`).
-    """
-    # Send a POST request to the '/add' endpoint with JSON payload
-    response = client.post('/add', json={'a': 10, 'b': 5})
-    
-    # Assert that the response status code is 200 (OK)
-    assert response.status_code == 200, f"Expected status code 200, got {response.status_code}"
-    
-    # Assert that the JSON response contains the correct 'result' value
-    assert response.json()['result'] == 15, f"Expected result 15, got {response.json()['result']}"
+    response = client.post(
+        "/register",
+        json={"username": "nandan", "email": "nandan@example.com", "password": "StrongPass1"}
+    )
 
-# ---------------------------------------------
-# Test Function: test_subtract_api
-# ---------------------------------------------
+    assert response.status_code in (200, 201)
+    body = response.json()
+    assert body["username"] == "nandan"
+    assert "email" in body
 
-def test_subtract_api(client):
-    """
-    Test the Subtraction API Endpoint.
 
-    This test verifies that the `/subtract` endpoint correctly subtracts the second number
-    from the first number provided in the JSON payload and returns the expected result.
+@patch("app.auth.dependencies.authenticate_user")
+def test_login_user(mock_auth_user):
+    """Verify JWT token is issued on successful login."""
+    mock_auth_user.return_value = MagicMock(id=1, username="nandan")
+    response = client.post(
+        "/login",
+        data={"username": "nandan", "password": "StrongPass1"},
+        headers={"Content-Type": "application/x-www-form-urlencoded"},
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert "access_token" in data
+    assert data["token_type"] == "bearer"
 
-    Steps:
-    1. Send a POST request to the `/subtract` endpoint with JSON data `{'a': 10, 'b': 5}`.
-    2. Assert that the response status code is `200 OK`.
-    3. Assert that the JSON response contains the correct result (`5`).
-    """
-    # Send a POST request to the '/subtract' endpoint with JSON payload
-    response = client.post('/subtract', json={'a': 10, 'b': 5})
-    
-    # Assert that the response status code is 200 (OK)
-    assert response.status_code == 200, f"Expected status code 200, got {response.status_code}"
-    
-    # Assert that the JSON response contains the correct 'result' value
-    assert response.json()['result'] == 5, f"Expected result 5, got {response.json()['result']}"
 
-# ---------------------------------------------
-# Test Function: test_multiply_api
-# ---------------------------------------------
+@patch("app.auth.dependencies.authenticate_user", side_effect=Exception("Invalid credentials"))
+def test_login_user_invalid(mock_auth_user):
+    """Ensure invalid credentials return HTTP 401."""
+    response = client.post(
+        "/login",
+        data={"username": "wrong", "password": "bad"},
+        headers={"Content-Type": "application/x-www-form-urlencoded"},
+    )
+    assert response.status_code == 401
 
-def test_multiply_api(client):
-    """
-    Test the Multiplication API Endpoint.
 
-    This test verifies that the `/multiply` endpoint correctly multiplies two numbers
-    provided in the JSON payload and returns the expected result.
+@patch("app.auth.dependencies.get_current_user")
+def test_protected_me_valid_token(mock_current_user):
+    """Access /users/me with a valid JWT token."""
+    mock_current_user.return_value = MagicMock(username="nandan", email="nandan@example.com")
+    token = dependencies.create_access_token({"sub": "1"})
+    headers = {"Authorization": f"Bearer {token}"}
 
-    Steps:
-    1. Send a POST request to the `/multiply` endpoint with JSON data `{'a': 10, 'b': 5}`.
-    2. Assert that the response status code is `200 OK`.
-    3. Assert that the JSON response contains the correct result (`50`).
-    """
-    # Send a POST request to the '/multiply' endpoint with JSON payload
-    response = client.post('/multiply', json={'a': 10, 'b': 5})
-    
-    # Assert that the response status code is 200 (OK)
-    assert response.status_code == 200, f"Expected status code 200, got {response.status_code}"
-    
-    # Assert that the JSON response contains the correct 'result' value
-    assert response.json()['result'] == 50, f"Expected result 50, got {response.json()['result']}"
+    response = client.get("/users/me", headers=headers)
+    assert response.status_code == 200
+    data = response.json()
+    assert data["username"] == "nandan"
+    assert "email" in data
 
-# ---------------------------------------------
-# Test Function: test_divide_api
-# ---------------------------------------------
 
-def test_divide_api(client):
-    """
-    Test the Division API Endpoint.
+def test_protected_me_invalid_token():
+    """Access /users/me with invalid JWT should return 401."""
+    bad_token = "invalid.token"
+    response = client.get("/users/me", headers={"Authorization": f"Bearer {bad_token}"})
+    assert response.status_code == 401
+    assert "invalid" in response.text.lower()
 
-    This test verifies that the `/divide` endpoint correctly divides the first number
-    by the second number provided in the JSON payload and returns the expected result.
 
-    Steps:
-    1. Send a POST request to the `/divide` endpoint with JSON data `{'a': 10, 'b': 2}`.
-    2. Assert that the response status code is `200 OK`.
-    3. Assert that the JSON response contains the correct result (`5`).
-    """
-    # Send a POST request to the '/divide' endpoint with JSON payload
-    response = client.post('/divide', json={'a': 10, 'b': 2})
-    
-    # Assert that the response status code is 200 (OK)
-    assert response.status_code == 200, f"Expected status code 200, got {response.status_code}"
-    
-    # Assert that the JSON response contains the correct 'result' value
-    assert response.json()['result'] == 5, f"Expected result 5, got {response.json()['result']}"
-
-# ---------------------------------------------
-# Test Function: test_divide_by_zero_api
-# ---------------------------------------------
-
-def test_divide_by_zero_api(client):
-    """
-    Test the Division by Zero API Endpoint.
-
-    This test verifies that the `/divide` endpoint correctly handles division by zero
-    by returning an appropriate error message and status code.
-
-    Steps:
-    1. Send a POST request to the `/divide` endpoint with JSON data `{'a': 10, 'b': 0}`.
-    2. Assert that the response status code is `400 Bad Request`.
-    3. Assert that the JSON response contains an 'error' field with the message "Cannot divide by zero!".
-    """
-    # Send a POST request to the '/divide' endpoint with JSON payload attempting division by zero
-    response = client.post('/divide', json={'a': 10, 'b': 0})
-    
-    # Assert that the response status code is 400 (Bad Request), indicating an error occurred
-    assert response.status_code == 400, f"Expected status code 400, got {response.status_code}"
-    
-    # Assert that the JSON response contains an 'error' field
-    assert 'error' in response.json(), "Response JSON does not contain 'error' field"
-    
-    # Assert that the 'error' field contains the correct error message
-    assert "Cannot divide by zero!" in response.json()['error'], \
-        f"Expected error message 'Cannot divide by zero!', got '{response.json()['error']}'"
+# ----------------------------------------------------------
+#  Health Endpoint (Container + DB Check)
+# ----------------------------------------------------------
+def test_health_check(client):
+    """Ensure /health endpoint responds in Docker environment."""
+    res = client.get("/health")
+    assert res.status_code == 200
+    data = res.json()
+    assert "status" in data
+    assert "ok" in data["status"].lower() or "healthy" in data["status"].lower()

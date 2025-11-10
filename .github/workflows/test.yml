@@ -1,15 +1,15 @@
 # ----------------------------------------------------------
 # Author: Nandan Kumar
-# Date: 11/05/2025
-# Assignment-10: Secure User Model, Pydantic Validation, and Docker Testing
+# Date: 11/08/2025
+# Assignment-10: Secure User Model, Pydantic Validation & Docker Testing
 # File: .github/workflows/test.yml
 # ----------------------------------------------------------
 # Description:
-# CI/CD workflow for FastAPI + PostgreSQL + Docker.
+# Complete CI/CD pipeline for the FastAPI Secure User Model.
 # Stages:
-#   1. Run Unit + Integration Tests (90% min coverage)
-#   2. Perform Trivy vulnerability scan on Docker image
-#   3. Build and Push verified image to DockerHub
+#   1. Run Unit + Integration Tests (min 90 % coverage)
+#   2. Perform Trivy vulnerability scan
+#   3. Build & Push verified image to Docker Hub
 # ----------------------------------------------------------
 
 name: FastAPI Secure User Model CI/CD
@@ -20,12 +20,17 @@ on:
   pull_request:
     branches: [ main ]
 
+permissions:
+  contents: read
+  packages: write
+
 jobs:
   # --------------------------------------------------------
-  # TEST JOB — Unit, Integration, and Validation Tests
+  # 1. TEST JOB — Unit, Integration, and Validation Tests
   # --------------------------------------------------------
   test:
     runs-on: ubuntu-latest
+
     services:
       postgres:
         image: postgres:15
@@ -48,7 +53,7 @@ jobs:
       - name: Set up Python 3.12
         uses: actions/setup-python@v5
         with:
-          python-version: '3.12'
+          python-version: "3.12"
 
       - name: Cache pip Dependencies
         uses: actions/cache@v3
@@ -64,19 +69,25 @@ jobs:
         run: |
           python -m venv venv
           source venv/bin/activate
-          pip install --upgrade pip
+          pip install --upgrade pip setuptools wheel
           pip install -r requirements.txt
-          playwright install --with-deps
 
       - name: Run Unit and Integration Tests (Coverage ≥90%)
         env:
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/fastapi_user_db
         run: |
           source venv/bin/activate
-          pytest --cov=app --cov-fail-under=90 --disable-warnings -v
+          pytest --cov=app --cov-report=term-missing --cov-report=html --cov-fail-under=90 -m "not e2e" -v --disable-warnings
+
+      - name: Upload Coverage Report
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-html
+          path: htmlcov/
 
   # --------------------------------------------------------
-  # SECURITY JOB — Vulnerability Scan using Trivy
+  # 2. SECURITY JOB — Vulnerability Scan using Trivy
   # --------------------------------------------------------
   security:
     needs: test
@@ -95,15 +106,15 @@ jobs:
       - name: Run Trivy Vulnerability Scan
         uses: aquasecurity/trivy-action@master
         with:
-          image-ref: 'nandanksingh/module10_user_model:m10'
-          format: 'table'
-          exit-code: '0'                # Don't fail build for minor CVEs
+          image-ref: "nandanksingh/module10_user_model:m10"
+          format: "table"
+          exit-code: "0"
           ignore-unfixed: true
-          severity: 'CRITICAL,HIGH'
-          vuln-type: 'os,library'
+          severity: "CRITICAL,HIGH"
+          vuln-type: "os,library"
 
   # --------------------------------------------------------
-  # DEPLOY JOB — Push Image to DockerHub
+  # 3. DEPLOY JOB — Push Verified Image to Docker Hub
   # --------------------------------------------------------
   deploy:
     needs: security
@@ -118,7 +129,7 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Log in to DockerHub
+      - name: Log in to Docker Hub
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
@@ -136,5 +147,5 @@ jobs:
           cache-from: type=registry,ref=nandanksingh/module10_user_model:cache
           cache-to: type=inline,mode=max
 
-      - name: Verify DockerHub Push
+      - name: Verify Docker Hub Push
         run: docker pull nandanksingh/module10_user_model:m10

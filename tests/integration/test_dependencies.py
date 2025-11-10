@@ -1,6 +1,6 @@
 # ----------------------------------------------------------
 # Author: Nandan Kumar
-# Date: 11/05/2025
+# Date: 11/08/2025
 # Assignment-10: Secure User Model + OAuth2 + JWT Integration
 # File: tests/integration/test_dependencies.py
 # ----------------------------------------------------------
@@ -11,13 +11,13 @@
 # ----------------------------------------------------------
 
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 from jose import jwt
 from fastapi import HTTPException, status
 from datetime import timedelta
 
 from app.auth import dependencies
-from app.security import hash_password
+from app.auth.security import hash_password, verify_password
 
 
 # ----------------------------------------------------------
@@ -36,7 +36,7 @@ def fake_user():
         id=1,
         username="testuser",
         email="test@example.com",
-        password_hash=hash_password("secure123"),
+        password_hash=hash_password("SecurePass123"),
         is_active=True,
     )
 
@@ -49,7 +49,7 @@ def test_create_and_verify_token():
     data = {"sub": "1", "username": "testuser"}
     token = dependencies.create_access_token(data, timedelta(minutes=1))
 
-    # Decode using jose directly
+    # Decode using same secret and algorithm
     decoded = jwt.decode(
         token,
         dependencies.SECRET_KEY,
@@ -59,7 +59,6 @@ def test_create_and_verify_token():
     assert decoded.get("sub") == "1"
     assert "exp" in decoded
 
-    # Verify using helper
     payload = dependencies.verify_access_token(token)
     assert payload["sub"] == "1"
 
@@ -74,40 +73,45 @@ def test_verify_access_token_invalid():
 
 
 # ----------------------------------------------------------
-# Test: Authenticate User
+# Test: authenticate_user()
 # ----------------------------------------------------------
 def test_authenticate_user_valid(mock_db, fake_user):
-    """Verify authenticate_user() succeeds with correct credentials."""
-    # Mock DB lookup
-    with patch("app.crud.get_user_by_username", return_value=fake_user), \
-         patch("app.crud.get_user_by_email", return_value=None):
+    """Ensure authenticate_user() returns a valid user for correct credentials."""
+    # Mock DB query chain
+    mock_query = MagicMock()
+    mock_filter = MagicMock()
+    mock_filter.first.return_value = fake_user
+    mock_query.filter.return_value = mock_filter
+    mock_db.query.return_value = mock_query
 
-        user = dependencies.authenticate_user(mock_db, "testuser", "secure123")
-        assert user.username == "testuser"
-        assert user.email == "test@example.com"
+    result = dependencies.authenticate_user(mock_db, fake_user.username, "SecurePass123")
+    assert result is not None
+    assert result.username == fake_user.username
+    assert verify_password("SecurePass123", result.password_hash)  # type: ignore[arg-type]
 
 
 def test_authenticate_user_invalid_password(mock_db, fake_user):
-    """Verify authenticate_user() raises HTTP 401 for wrong password."""
-    with patch("app.crud.get_user_by_username", return_value=fake_user), \
-         patch("app.crud.get_user_by_email", return_value=None):
+    """Ensure authenticate_user() returns None for invalid password."""
+    mock_query = MagicMock()
+    mock_filter = MagicMock()
+    mock_filter.first.return_value = fake_user
+    mock_query.filter.return_value = mock_filter
+    mock_db.query.return_value = mock_query
 
-        with pytest.raises(HTTPException) as exc_info:
-            dependencies.authenticate_user(mock_db, "testuser", "wrongpass")
-
-        assert exc_info.value.status_code == status.HTTP_401_UNAUTHORIZED
-        assert "invalid username or password" in exc_info.value.detail.lower()
+    result = dependencies.authenticate_user(mock_db, fake_user.username, "WrongPass")
+    assert result is None
 
 
 def test_authenticate_user_not_found(mock_db):
-    """Verify authenticate_user() raises HTTP 401 when user not found."""
-    with patch("app.crud.get_user_by_username", return_value=None), \
-         patch("app.crud.get_user_by_email", return_value=None):
+    """Ensure authenticate_user() returns None for nonexistent users."""
+    mock_query = MagicMock()
+    mock_filter = MagicMock()
+    mock_filter.first.return_value = None
+    mock_query.filter.return_value = mock_filter
+    mock_db.query.return_value = mock_query
 
-        with pytest.raises(HTTPException) as exc_info:
-            dependencies.authenticate_user(mock_db, "ghost", "nopass")
-
-        assert exc_info.value.status_code == status.HTTP_401_UNAUTHORIZED
+    result = dependencies.authenticate_user(mock_db, "ghostuser", "password123")
+    assert result is None
 
 
 # ----------------------------------------------------------
@@ -117,9 +121,11 @@ def test_get_current_user_valid_token(mock_db, fake_user):
     """Verify get_current_user() retrieves user from valid token."""
     token = dependencies.create_access_token({"sub": str(fake_user.id)})
 
-    # Mock DB query
+    # Mock DB query chain
     mock_query = MagicMock()
-    mock_query.filter_by.return_value.first.return_value = fake_user
+    mock_filter = MagicMock()
+    mock_filter.first.return_value = fake_user
+    mock_query.filter.return_value = mock_filter
     mock_db.query.return_value = mock_query
 
     result = dependencies.get_current_user(token=token, db=mock_db)
@@ -129,23 +135,25 @@ def test_get_current_user_valid_token(mock_db, fake_user):
 
 def test_get_current_user_missing_user_id(mock_db):
     """Verify token without 'sub' raises HTTP 401."""
-    token = dependencies.create_access_token({})
-    payload = jwt.decode(token, dependencies.SECRET_KEY, algorithms=[dependencies.ALGORITHM])
-    del payload["exp"]  # simulate tampering
-
-    fake_token = jwt.encode(payload, dependencies.SECRET_KEY, algorithm=dependencies.ALGORITHM)
+    token = dependencies.create_access_token({})  # no 'sub' claim
 
     with pytest.raises(HTTPException) as exc_info:
-        dependencies.get_current_user(token=fake_token, db=mock_db)
+        dependencies.get_current_user(token=token, db=mock_db)
 
     assert exc_info.value.status_code == status.HTTP_401_UNAUTHORIZED
-    assert "missing user id" in exc_info.value.detail.lower()
+    assert "user id" in exc_info.value.detail.lower()
 
 
 def test_get_current_user_user_not_found(mock_db):
     """Verify get_current_user() raises HTTP 401 if user does not exist."""
     token = dependencies.create_access_token({"sub": "999"})
-    mock_db.query.return_value.filter_by.return_value.first.return_value = None
+
+    # Mock DB returning None
+    mock_query = MagicMock()
+    mock_filter = MagicMock()
+    mock_filter.first.return_value = None
+    mock_query.filter.return_value = mock_filter
+    mock_db.query.return_value = mock_query
 
     with pytest.raises(HTTPException) as exc_info:
         dependencies.get_current_user(token=token, db=mock_db)

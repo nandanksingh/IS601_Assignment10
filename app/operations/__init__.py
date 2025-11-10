@@ -14,8 +14,8 @@
 # Compatible with containerized execution under Docker Compose.
 # ----------------------------------------------------------
 
-from typing import Union
 import logging
+from typing import Union
 
 # ----------------------------------------------------------
 # Type Alias and Logger Configuration
@@ -32,7 +32,7 @@ logger.setLevel(logging.INFO)
 def validate_number(value: Number) -> Number:
     """Ensure the provided input is a numeric value (int or float)."""
     if not isinstance(value, (int, float)):
-        logger.error(f"Invalid input type: {type(value)} - Value must be numeric.")
+        logger.error(f"Invalid input type: {type(value)} - must be numeric.")
         raise ValueError("Input must be numeric (int or float).")
     return value
 
@@ -45,7 +45,7 @@ def add(a: Number, b: Number) -> float:
     a, b = validate_number(a), validate_number(b)
     result = a + b
     logger.info(f"Add operation: {a} + {b} = {result}")
-    return result
+    return float(result)
 
 
 def subtract(a: Number, b: Number) -> float:
@@ -53,7 +53,7 @@ def subtract(a: Number, b: Number) -> float:
     a, b = validate_number(a), validate_number(b)
     result = a - b
     logger.info(f"Subtract operation: {a} - {b} = {result}")
-    return result
+    return float(result)
 
 
 def multiply(a: Number, b: Number) -> float:
@@ -61,7 +61,7 @@ def multiply(a: Number, b: Number) -> float:
     a, b = validate_number(a), validate_number(b)
     result = a * b
     logger.info(f"Multiply operation: {a} * {b} = {result}")
-    return result
+    return float(result)
 
 
 def divide(a: Number, b: Number) -> float:
@@ -72,7 +72,7 @@ def divide(a: Number, b: Number) -> float:
         raise ValueError("Division by zero is not allowed.")
     result = a / b
     logger.info(f"Divide operation: {a} / {b} = {result}")
-    return result
+    return float(result)
 
 
 # ----------------------------------------------------------

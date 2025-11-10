@@ -1,14 +1,19 @@
 # ----------------------------------------------------------
 # Author: Nandan Kumar
-# Date: 11/05/2025
+# Date: 11/08/2025
 # Assignment-10: Secure User Model, Pydantic Validation, and Docker Testing
 # File: tests/unit/test_calculator.py
 # ----------------------------------------------------------
 # Description:
 # Unit tests for arithmetic functions implemented in app/operations.
-# Verifies correct mathematical results, type validation, and error handling
+# Verifies mathematical accuracy, type validation, and error handling
 # across Add, Subtract, Multiply, and Divide functions.
 # ----------------------------------------------------------
+
+"""
+These tests validate the calculator logic layer (app/operations).
+Executed automatically in CI/CD under Docker and GitHub Actions.
+"""
 
 import pytest
 from app.operations import add, subtract, multiply, divide
@@ -24,7 +29,7 @@ from app.operations import add, subtract, multiply, divide
     (0, 0, 0),
 ])
 def test_add(a, b, expected):
-    """Verify that add() correctly adds integers, floats, and negatives."""
+    """Verify add() correctly adds integers, floats, and negatives."""
     assert add(a, b) == expected
 
 

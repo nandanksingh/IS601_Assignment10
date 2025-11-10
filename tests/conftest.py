@@ -1,15 +1,15 @@
 # ----------------------------------------------------------
 # Author: Nandan Kumar
-# Date: 11/05/2025
+# Date: 11/08/2025
 # Assignment-10: Secure User Model (Pydantic Validation + Database Testing)
 # File: tests/conftest.py
 # ----------------------------------------------------------
 # Description:
 # Provides shared pytest fixtures for Assignment-10 covering:
-#   - Database session lifecycle management (SQLAlchemy)
-#   - Fake user data creation using Faker
-#   - FastAPI server startup for E2E testing
-#   - Playwright browser setup for UI automation
+#   - Database session lifecycle (SQLAlchemy)
+#   - Fake user data creation (Faker)
+#   - Optional FastAPI server for E2E tests
+#   - Optional Playwright browser automation
 # ----------------------------------------------------------
 
 import subprocess
@@ -20,10 +20,14 @@ from faker import Faker
 from contextlib import contextmanager
 from playwright.sync_api import sync_playwright
 from sqlalchemy.exc import SQLAlchemyError
-from app.database import Base, engine, SessionLocal
-from app.models.user import User
 
-# Initialize Faker
+from app.database.dbase import Base, engine, SessionLocal
+from app.models.user_model import User
+from app.auth.security import hash_password
+
+# ----------------------------------------------------------
+# Faker Initialization
+# ----------------------------------------------------------
 fake = Faker()
 Faker.seed(12345)
 
@@ -33,7 +37,7 @@ Faker.seed(12345)
 # ----------------------------------------------------------
 @pytest.fixture(scope="session", autouse=True)
 def setup_test_database():
-    """Initialize clean database schema for the test session."""
+    """Initialize a clean database schema for the test session."""
     Base.metadata.drop_all(bind=engine)
     Base.metadata.create_all(bind=engine)
     yield
@@ -58,20 +62,21 @@ def managed_db_session():
     try:
         yield session
         session.commit()
-    except SQLAlchemyError as e:
+    except SQLAlchemyError:
         session.rollback()
-        raise e
+        raise
     finally:
         session.close()
 
 
 @pytest.fixture
 def fake_user_data():
-    """Return fake user data for testing."""
+    """Return fake user data with hashed password for testing."""
+    profile = fake.simple_profile()
     return {
-        "username": fake.unique.user_name(),
-        "email": fake.unique.email(),
-        "password_hash": "TestPass123",
+        "username": profile["username"],
+        "email": profile["mail"],
+        "password_hash": hash_password("TestPass123"),
     }
 
 
@@ -93,7 +98,7 @@ def seed_users(db_session):
         data = {
             "username": fake.unique.user_name(),
             "email": fake.unique.email(),
-            "password_hash": "TempPass123",
+            "password_hash": hash_password("TempPass123"),
         }
         user = User(**data)
         users.append(user)
@@ -103,43 +108,39 @@ def seed_users(db_session):
 
 
 # ----------------------------------------------------------
-# FastAPI Server Fixture (for E2E tests)
+# Optional FastAPI Server Fixture (for E2E tests)
 # ----------------------------------------------------------
-@pytest.fixture(scope="session", autouse=True)
+@pytest.fixture(scope="session")
 def fastapi_server():
-    """Start FastAPI server before E2E tests and stop it after tests."""
-    print("\nStarting FastAPI server for E2E tests...")
+    """Start FastAPI server before E2E tests (manual use only)."""
+    print("\n[SETUP] Starting FastAPI server for E2E tests...")
     server = subprocess.Popen(["python", "main.py"])
     url = "http://127.0.0.1:8000/health"
-    started = False
 
     for _ in range(30):
         try:
             if requests.get(url).status_code == 200:
-                print("FastAPI server is running.")
-                started = True
+                print("[READY] FastAPI server is running.")
                 break
         except requests.exceptions.ConnectionError:
             time.sleep(1)
-
-    if not started:
+    else:
         server.terminate()
         raise RuntimeError("FastAPI server did not start in time.")
 
-    yield  # Run tests
-
-    print("Stopping FastAPI server...")
+    yield
+    print("[TEARDOWN] Stopping FastAPI server...")
     server.terminate()
     try:
         server.wait(timeout=5)
-        print("FastAPI server stopped successfully.")
+        print("[OK] Server stopped successfully.")
     except Exception:
-        print("Server did not terminate cleanly; killing process.")
         server.kill()
+        print("[FORCE] Server killed.")
 
 
 # ----------------------------------------------------------
-# Playwright Fixtures
+# Optional Playwright Fixtures
 # ----------------------------------------------------------
 @pytest.fixture(scope="session")
 def playwright_instance():

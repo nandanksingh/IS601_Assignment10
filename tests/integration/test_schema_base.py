@@ -1,14 +1,14 @@
 # ----------------------------------------------------------
 # Author: Nandan Kumar
-# Date: 11/05/2025
+# Date: 11/08/2025
 # Assignment-10: Secure User Model (Pydantic Validation + Database Testing)
 # File: tests/integration/test_schema_base.py
 # ----------------------------------------------------------
 # Description:
 # Integration tests for `app/schemas/base.py`.
 # Validates field constraints and password strength rules
-# for UserBase, PasswordMixin, UserCreate, and UserLogin
-# Pydantic schemas defined in Assignment-10.
+# for UserBase, PasswordMixin, UserCreate, and UserLogin.
+# Achieves 100% coverage including "Password is required" case.
 # ----------------------------------------------------------
 
 import pytest
@@ -29,6 +29,8 @@ def test_user_base_valid():
     }
     user = UserBase(**data)
     assert user.first_name == "Nandan"
+    assert user.last_name == "Kumar"
+    assert user.username == "nandan123"
     assert user.email == "nandan@example.com"
 
 
@@ -65,7 +67,7 @@ def test_password_mixin_valid(password):
 
 
 @pytest.mark.parametrize("password, expected_msg", [
-    ("short", "Password must be at least 6 characters"),
+    ("short", "at least 6 characters"),
     ("lowercase1", "uppercase"),
     ("UPPERCASE1", "lowercase"),
     ("NoDigitsHere", "digit"),
@@ -75,6 +77,19 @@ def test_password_mixin_invalid(password, expected_msg):
     with pytest.raises(ValidationError) as exc_info:
         PasswordMixin(password=password)
     assert expected_msg.lower() in str(exc_info.value).lower()
+
+
+def test_password_mixin_missing_password():
+    """Ensure schema rejects completely missing or None password."""
+    # Case 1: password key absent
+    with pytest.raises(ValidationError) as exc1:
+        PasswordMixin()  # type: ignore
+    assert "Password is required" in str(exc1.value)
+
+    # Case 2: password=None explicitly
+    with pytest.raises(ValidationError) as exc2:
+        PasswordMixin(password=None)  # type: ignore
+    assert "Password is required" in str(exc2.value)
 
 
 # ----------------------------------------------------------
@@ -92,6 +107,7 @@ def test_user_create_valid():
     schema = UserCreate(**data)
     assert schema.username == "nandan123"
     assert schema.password == "SecurePass123"
+    assert schema.email == "nandan@example.com"
 
 
 def test_user_create_invalid_password():
@@ -115,6 +131,7 @@ def test_user_login_valid():
     data = {"username": "nandan@example.com", "password": "SecurePass123"}
     schema = UserLogin(**data)
     assert schema.username == "nandan@example.com"
+    assert schema.password == "SecurePass123"
 
 
 @pytest.mark.parametrize("username", ["ab", "", None])

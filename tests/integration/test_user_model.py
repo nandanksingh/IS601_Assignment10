@@ -1,25 +1,27 @@
 # ----------------------------------------------------------
 # Author: Nandan Kumar
-# Date: 11/05/2025
+# Date: 11/08/2025
 # Assignment-10: Secure User Model (Pydantic Validation + Database Testing)
-# File: tests/integration/test_user.py
+# File: tests/integration/test_user_model.py
 # ----------------------------------------------------------
 # Description:
-# Integration tests for direct User model and database operations.
+# Integration tests for the SQLAlchemy User model.
 # Covers:
 #   • Session creation & rollback
-#   • User persistence and constraints
-#   • Query operations
-#   • Update and bulk insert examples
+#   • Unique constraints & commits
+#   • Query, update, and bulk insert behavior
+#   • Password hashing / verification
+#   • Model __repr__ verification
 # ----------------------------------------------------------
 
 import pytest
 import logging
 from sqlalchemy import text
-from sqlalchemy.exc import IntegrityError
-from app.models.user import User
-from app.database import Base, engine, SessionLocal
-from app.security import hash_password
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
+
+from app.models.user_model import User
+from app.database.dbase import Base, engine, SessionLocal
+from app.auth.security import hash_password
 
 logger = logging.getLogger(__name__)
 
@@ -27,9 +29,9 @@ logger = logging.getLogger(__name__)
 # ----------------------------------------------------------
 # Fixtures
 # ----------------------------------------------------------
-@pytest.fixture(scope="module", autouse=True)
+@pytest.fixture(scope="function", autouse=True)
 def setup_database():
-    """Initialize test DB tables and teardown after all tests."""
+    """Recreate tables before each test to ensure isolation."""
     Base.metadata.drop_all(bind=engine)
     Base.metadata.create_all(bind=engine)
     yield
@@ -38,7 +40,7 @@ def setup_database():
 
 @pytest.fixture
 def db_session():
-    """Provide isolated session for each test with rollback."""
+    """Provide a clean SQLAlchemy session for each test."""
     session = SessionLocal()
     try:
         yield session
@@ -49,8 +51,8 @@ def db_session():
 
 @pytest.fixture
 def make_user():
-    """Return a helper to create users easily."""
-    def _make(username, email):
+    """Return a factory for generating user instances."""
+    def _make(username: str, email: str):
         return User(
             username=username,
             email=email,
@@ -63,7 +65,7 @@ def make_user():
 # Connection Test
 # ----------------------------------------------------------
 def test_database_connection(db_session):
-    """Verify database connectivity via simple SELECT."""
+    """Verify DB connectivity via simple SELECT query."""
     result = db_session.execute(text("SELECT 1"))
     assert result.scalar() == 1
 
@@ -72,19 +74,19 @@ def test_database_connection(db_session):
 # Insert / Commit / Rollback Tests
 # ----------------------------------------------------------
 def test_user_commit_and_rollback(db_session, make_user):
-    """Commit valid user, trigger rollback on duplicate."""
+    """Commit valid user, verify rollback on duplicate email."""
     u1 = make_user("alpha", "alpha@example.com")
     db_session.add(u1)
     db_session.commit()
 
-    # Duplicate email → should raise IntegrityError
+    # Duplicate email should raise IntegrityError
     u2 = make_user("beta", "alpha@example.com")
     db_session.add(u2)
     with pytest.raises(IntegrityError):
         db_session.commit()
     db_session.rollback()
 
-    # Ensure only first user remains
+    # Ensure only one valid user remains
     users = db_session.query(User).all()
     assert len(users) == 1
     assert users[0].username == "alpha"
@@ -94,7 +96,7 @@ def test_user_commit_and_rollback(db_session, make_user):
 # Query Behavior
 # ----------------------------------------------------------
 def test_user_query_methods(db_session, make_user):
-    """Demonstrate common query filters and ordering."""
+    """Verify common query filters and ordering."""
     db_session.add_all([
         make_user("user1", "u1@example.com"),
         make_user("user2", "u2@example.com"),
@@ -102,32 +104,28 @@ def test_user_query_methods(db_session, make_user):
     ])
     db_session.commit()
 
-    total = db_session.query(User).count()
-    assert total >= 3
+    assert db_session.query(User).count() == 3
 
     found = db_session.query(User).filter_by(username="user2").first()
-    assert found is not None
-    assert found.email == "u2@example.com"
+    assert found and found.email == "u2@example.com"
 
     ordered = db_session.query(User).order_by(User.email).all()
-    assert all(isinstance(u.email, str) for u in ordered)
+    assert [u.email for u in ordered] == sorted([u.email for u in ordered])
 
 
 # ----------------------------------------------------------
 # Update & Refresh Tests
 # ----------------------------------------------------------
 def test_user_update_and_refresh(db_session, make_user):
-    """Update user email and verify updated_at refresh."""
+    """Ensure updates persist and timestamps refresh."""
     user = make_user("nandan", "nandan@example.com")
     db_session.add(user)
     db_session.commit()
 
-    old_email = user.email
     user.email = "updated@example.com"
     db_session.commit()
     db_session.refresh(user)
 
-    assert user.email != old_email
     assert user.email == "updated@example.com"
 
 
@@ -137,8 +135,8 @@ def test_user_update_and_refresh(db_session, make_user):
 @pytest.mark.slow
 def test_bulk_user_insert(db_session, make_user):
     """Insert multiple users efficiently using bulk_save_objects."""
-    bulk_users = [make_user(f"bulk{i}", f"bulk{i}@ex.com") for i in range(5)]
-    db_session.bulk_save_objects(bulk_users)
+    users = [make_user(f"bulk{i}", f"bulk{i}@example.com") for i in range(5)]
+    db_session.bulk_save_objects(users)
     db_session.commit()
 
     count = db_session.query(User).count()
@@ -177,19 +175,42 @@ def test_transaction_rollback(db_session, make_user):
     try:
         db_session.execute(text("SELECT * FROM non_existing_table"))
         db_session.commit()
-    except Exception:
+    except SQLAlchemyError:
         db_session.rollback()
 
+    # Ensure rollback cleared pending insert
     assert db_session.query(User).filter_by(username="rollback").first() is None
 
 
 # ----------------------------------------------------------
-# Model Representation
+# Model Password 
 # ----------------------------------------------------------
-def test_user_repr(db_session, make_user):
-    """Ensure model __repr__ is human-readable."""
-    user = make_user("pretty", "pretty@example.com")
+def test_user_password_methods():
+    """Cover set_password(), verify_password(), and __repr__()."""
+    user = User(username="demo", email="demo@example.com")
+    user.set_password("MySecurePass123")
+    assert user.password_hash is not None
+    assert user.verify_password("MySecurePass123") is True
+    assert user.verify_password("WrongPass") is False
+
+    # __repr__ validation
+    repr_out = repr(user)
+    assert "demo" in repr_out
+    assert "demo@example.com" in repr_out
+
+# ----------------------------------------------------------
+# Schema Conversion Coverage
+# ----------------------------------------------------------
+def test_user_to_read_schema(db_session, make_user):
+    """Ensure to_read_schema() correctly converts model to Pydantic schema."""
+    user = make_user("convert", "convert@example.com")
     db_session.add(user)
     db_session.commit()
-    assert "username='pretty'" in repr(user)
-    assert "email='pretty@example.com'" in repr(user)
+
+    schema = user.to_read_schema()
+    assert schema.username == "convert"
+    assert schema.email == "convert@example.com"
+    assert hasattr(schema, "created_at")
+    assert hasattr(schema, "updated_at")
+
+

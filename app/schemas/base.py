@@ -1,12 +1,12 @@
 # ----------------------------------------------------------
 # Author: Nandan Kumar
-# Date: 11/05/2025
+# Date: 11/08/2025
 # Assignment-10: Secure User Model (Pydantic Validation + Database Testing)
 # File: app/schemas/base.py
 # ----------------------------------------------------------
 # Description:
 # Shared foundational Pydantic schemas and mixins used by
-# all user-related models.  Handles common profile fields
+# all user-related models. Handles common profile fields
 # and centralized password-strength validation.
 # ----------------------------------------------------------
 
@@ -18,12 +18,13 @@ from pydantic import BaseModel, EmailStr, Field, ConfigDict, model_validator
 # ----------------------------------------------------------
 class UserBase(BaseModel):
     """Basic user profile fields shared across schemas."""
-    first_name: str = Field(..., min_length=2, max_length=50, example="Nandan")
-    last_name:  str = Field(..., min_length=2, max_length=50, example="Kumar")
-    username:   str = Field(..., min_length=3, max_length=50, example="nandan123")
-    email:      EmailStr = Field(..., example="nandan@example.com")
+    first_name: str = Field(..., min_length=2, max_length=50, examples=["Nandan"])
+    last_name: str = Field(..., min_length=2, max_length=50, examples=["Kumar"])
+    username: str = Field(..., min_length=3, max_length=50, examples=["nandan123"])
+    email: EmailStr = Field(..., examples=["nandan@example.com"])
 
-    model_config = ConfigDict(from_attributes=True)  # ORM ↔ Pydantic mapping
+    # Enables ORM model ↔ Pydantic model conversion
+    model_config = ConfigDict(from_attributes=True)
 
 
 # ----------------------------------------------------------
@@ -35,24 +36,25 @@ class PasswordMixin(BaseModel):
         ...,
         min_length=6,
         max_length=128,
-        example="SecurePass123",
+        examples=["SecurePass123"],
         description="Password must contain uppercase, lowercase, and digits."
     )
 
     @model_validator(mode="before")
     @classmethod
     def validate_password_strength(cls, values: dict) -> dict:
+        """Validate password complexity before model creation."""
         pwd = values.get("password")
         if not pwd:
             raise ValueError("Password is required.")
         if len(pwd) < 6:
             raise ValueError("Password must be at least 6 characters long.")
         if not any(c.isupper() for c in pwd):
-            raise ValueError("Password must contain an uppercase letter.")
+            raise ValueError("Password must contain at least one uppercase letter.")
         if not any(c.islower() for c in pwd):
-            raise ValueError("Password must contain a lowercase letter.")
+            raise ValueError("Password must contain at least one lowercase letter.")
         if not any(c.isdigit() for c in pwd):
-            raise ValueError("Password must contain a numeric digit.")
+            raise ValueError("Password must contain at least one numeric digit.")
         return values
 
 
@@ -60,7 +62,7 @@ class PasswordMixin(BaseModel):
 # Composite Schemas
 # ----------------------------------------------------------
 class UserCreate(UserBase, PasswordMixin):
-    """Used for user registration (inherits password rules)."""
+    """Used for user registration (inherits password validation rules)."""
     pass
 
 
@@ -70,6 +72,6 @@ class UserLogin(PasswordMixin):
         ...,
         min_length=3,
         max_length=50,
-        description="Username or email for login.",
-        example="nandan@example.com"
+        description="Username or email used for login.",
+        examples=["nandan@example.com"]
     )

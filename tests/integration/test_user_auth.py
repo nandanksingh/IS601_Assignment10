@@ -1,6 +1,6 @@
 # ----------------------------------------------------------
 # Author: Nandan Kumar
-# Date: 11/05/2025
+# Date: 11/08/2025
 # Assignment-10: Secure User Model (Pydantic Validation + Database Testing)
 # File: tests/integration/test_user_auth.py
 # ----------------------------------------------------------
@@ -15,17 +15,18 @@
 
 import pytest
 from sqlalchemy.exc import IntegrityError
-from app.models.user import User
-from app.security import hash_password, verify_password
-from app.database import Base, engine, SessionLocal
+
+from app.models.user_model import User
+from app.auth.security import hash_password, verify_password
+from app.database.dbase import Base, engine, SessionLocal
 
 
 # ----------------------------------------------------------
 # Fixtures
 # ----------------------------------------------------------
-@pytest.fixture(scope="module", autouse=True)
+@pytest.fixture(scope="function", autouse=True)
 def setup_database():
-    """Create test tables before running tests and drop after."""
+    """Recreate tables before each test to ensure isolation."""
     Base.metadata.drop_all(bind=engine)
     Base.metadata.create_all(bind=engine)
     yield
@@ -45,7 +46,7 @@ def db_session():
 
 @pytest.fixture
 def user_data():
-    """Return reusable fake user data."""
+    """Reusable fake user data."""
     return {
         "username": "testuser",
         "email": "test@example.com",
@@ -54,7 +55,7 @@ def user_data():
 
 
 # ----------------------------------------------------------
-#  Password Hashing and Verification
+# Password Hashing / Verification
 # ----------------------------------------------------------
 def test_password_hashing_and_verification():
     """Verify bcrypt hashing and validation functions."""
@@ -66,10 +67,10 @@ def test_password_hashing_and_verification():
 
 
 # ----------------------------------------------------------
-#  User ORM Behavior
+# ORM Behavior
 # ----------------------------------------------------------
 def test_user_creation_and_persistence(db_session, user_data):
-    """Create and persist a new user in the database."""
+    """Create and persist a new user."""
     user = User(**user_data)
     db_session.add(user)
     db_session.commit()
@@ -82,7 +83,7 @@ def test_user_creation_and_persistence(db_session, user_data):
 
 
 def test_unique_username_email_constraint(db_session, user_data):
-    """Enforce unique username and email constraints."""
+    """Enforce unique username/email constraints."""
     user1 = User(**user_data)
     db_session.add(user1)
     db_session.commit()
@@ -95,13 +96,13 @@ def test_unique_username_email_constraint(db_session, user_data):
 
 
 # ----------------------------------------------------------
-#  JWT Token Handling
+# JWT Token Handling
 # ----------------------------------------------------------
 def test_jwt_token_creation_and_verification():
-    """Ensure JWT token correctly encodes and decodes user ID."""
+    """Ensure JWT token encodes and decodes user ID correctly."""
     token = User.create_token(user_id=42)
-    decoded_user_id = User.verify_token(token)
-    assert decoded_user_id == 42
+    decoded_id = User.verify_token(token)
+    assert decoded_id == 42
 
 
 def test_invalid_token_rejected():
@@ -112,13 +113,14 @@ def test_invalid_token_rejected():
 
 
 # ----------------------------------------------------------
-#  Model Representation
+# Model Representation
 # ----------------------------------------------------------
 def test_user_model_repr(db_session, user_data):
     """Check __repr__ returns readable format."""
     user = User(**user_data)
     db_session.add(user)
     db_session.commit()
-    repr_str = repr(user)
-    assert "username='testuser'" in repr_str
-    assert "email='test@example.com'" in repr_str
+
+    output = repr(user)
+    assert "username='testuser'" in output
+    assert "email='test@example.com'" in output

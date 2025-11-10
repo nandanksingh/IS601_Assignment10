@@ -1,31 +1,31 @@
 # ----------------------------------------------------------
 # Author: Nandan Kumar
-# Date: 11/05/2025
+# Date: 11/08/2025
 # Assignment-10: Secure User Model, Pydantic Validation, and Docker Testing
 # File: docker-compose.yml
 # ----------------------------------------------------------
 # Description:
-# Multi-container Docker Compose configuration for the
+# Multi-container Docker Compose setup for the
 # FastAPI Secure User Model project.
-# This setup includes:
-#   1. FastAPI backend (with JWT authentication & Pydantic validation)
+# Includes:
+#   1. FastAPI backend (SQLAlchemy + Pydantic)
 #   2. PostgreSQL database
 #   3. pgAdmin web interface
-# Designed for integration testing and CI/CD with DockerHub.
 # ----------------------------------------------------------
 
 name: user_model_m10_project
 
 services:
   # --------------------------------------------------------
-  # 1️⃣ FastAPI Application (Main Web Service)
+  # 1. FastAPI Application (Main Web Service)
   # --------------------------------------------------------
   web:
+    container_name: module10_user_model
+    image: nandanksingh/module10_user_model:m10
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: fastapi_user_model_m10
-    image: nandanksingh/module10_user_model:m10 # DockerHub repo & tag
+    env_file: .env
     ports:
       - "8000:8000"
     volumes:
@@ -33,23 +33,25 @@ services:
     environment:
       PYTHONDONTWRITEBYTECODE: 1
       PYTHONUNBUFFERED: 1
-      DATABASE_URL: postgresql://postgres:postgres@db:5432/fastapi_user_db
-    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+      DATABASE_URL: postgresql://postgres:postgres@db:5432/fastapi_db
+      TEST_DATABASE_URL: sqlite:///./test.db
+    command: uvicorn main:app --host 0.0.0.0 --port 8000 --workers 2
     depends_on:
-      - db
+      db:
+        condition: service_healthy
     networks:
       - app-network
 
   # --------------------------------------------------------
-  # 2️⃣ PostgreSQL Database
+  # 2. PostgreSQL Database
   # --------------------------------------------------------
   db:
-    image: postgres:15
     container_name: postgres_user_model_m10
+    image: postgres:15
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: fastapi_user_db
+      POSTGRES_DB: fastapi_db
     ports:
       - "5432:5432"
     volumes:
@@ -63,11 +65,11 @@ services:
       - app-network
 
   # --------------------------------------------------------
-  # 3️⃣ pgAdmin Web Interface (Database GUI)
+  # 3. pgAdmin Web Interface (Database GUI)
   # --------------------------------------------------------
   pgadmin:
-    image: dpage/pgadmin4:latest
     container_name: pgadmin_user_model_m10
+    image: dpage/pgadmin4:latest
     environment:
       PGADMIN_DEFAULT_EMAIL: admin@example.com
       PGADMIN_DEFAULT_PASSWORD: admin
@@ -82,7 +84,7 @@ services:
       - app-network
 
 # ----------------------------------------------------------
-# Volumes: Persistent data for PostgreSQL & pgAdmin
+# Volumes: Persistent storage for Postgres & pgAdmin
 # ----------------------------------------------------------
 volumes:
   postgres_data:

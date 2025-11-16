@@ -1,8 +1,8 @@
 # **Assignment 10 – Secure User Model, Pydantic Validation, and Docker Testing**
 
-**Author:** Nandan Kumar
+**Author:** Nandan Kumar  
 **Date:** November 10, 2025
-**Course:** IS601 – Advanced Python and DevOps Integration
+
 
 ---
 

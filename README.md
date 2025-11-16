@@ -1,47 +1,54 @@
 # **Assignment 10 – Secure User Model, Pydantic Validation, and Docker Testing**
 
-**Author:** Nandan Kumar  
+**Author:** Nandan Kumar   
 **Date:** November 10, 2025
 
+---
+
+## **Introduction**
+
+In this assignment, I extended my FastAPI project by creating a **secure user model** with SQLAlchemy, Pydantic validation, and password hashing. I also set up a complete development environment using **Docker Compose** and automated the entire testing and deployment workflow through **GitHub Actions**.
+
+This project helped me understand how real-world backend systems are built, tested, and deployed using modern DevOps practices.
 
 ---
 
-## **Project Overview**
+## **Project Structure and Tools**
 
-This project builds upon earlier FastAPI assignments by developing a **Secure User Model** integrated with **SQLAlchemy ORM**, **Pydantic Validation**, and **PostgreSQL**, fully containerized through **Docker Compose** and continuously validated via **GitHub Actions CI/CD**.
+The project includes three main services:
 
-The objective was to simulate a production-grade backend service ensuring **data integrity**, **security**, and **automation** — combining development, testing, and deployment workflows in one unified pipeline.
+| Service     | Purpose                  | Port |
+| ----------- | ------------------------ | ---- |
+| **app**     | FastAPI backend          | 8000 |
+| **db**      | PostgreSQL database      | 5432 |
+| **pgadmin** | Web GUI for SQL database | 5050 |
 
-The stack includes:
+I used the following technologies:
 
-* **FastAPI** – Asynchronous RESTful backend
-* **PostgreSQL** – Relational database engine
-* **pgAdmin 4** – Web-based database management tool
+* **FastAPI** for building the API
+* **SQLAlchemy** for database models
+* **Pydantic** for input validation
+* **Docker** and **Docker Compose**
+* **GitHub Actions** for CI/CD
+* **Trivy** for vulnerability scanning
+* **PostgreSQL + pgAdmin** for data storage and management
 
 ---
 
-## **Environment Setup**
+## **Running the Project with Docker**
 
-### **Docker Compose Services**
-
-| Service     | Description                 | Port |
-| ----------- | --------------------------- | ---- |
-| **app**     | FastAPI backend application | 8000 |
-| **db**      | PostgreSQL database         | 5432 |
-| **pgadmin** | GUI for database management | 5050 |
-
-**Start the stack**
+Start all services:
 
 ```bash
 docker compose up --build
 ```
 
-**Access points**
+Access:
 
-* FastAPI → [http://localhost:8000](http://localhost:8000)
-* pgAdmin → [http://localhost:5050](http://localhost:5050)
+* FastAPI: [http://localhost:8000](http://localhost:8000)
+* pgAdmin: [http://localhost:5050](http://localhost:5050)
 
-**Stop containers**
+Stop services:
 
 ```bash
 docker compose down
@@ -49,71 +56,56 @@ docker compose down
 
 ---
 
-## **GitHub CI/CD Pipeline**
+## **CI/CD Pipeline (GitHub Actions)**
 
-Automated testing, image scanning, and deployment are managed through **GitHub Actions** using `.github/workflows/test.yml`.
+My GitHub workflow has three automated stages:
 
-### **Workflow Stages**
+### **1. Test Stage**
 
-1. **Test Phase** – Spins up a PostgreSQL container and runs unit/integration tests with ≥ 90% coverage.
-2. **Security Phase** – Performs a **Trivy vulnerability scan** on the built Docker image.
-3. **Deploy Phase** – Pushes the verified image to **Docker Hub** if all checks pass.
+* Runs unit and integration tests
+* Starts a PostgreSQL service inside the workflow
+* Requires **90% minimum coverage**
 
-**Manual local run:**
+### **2. Security Scan**
+
+* Builds the Docker image
+* Scans it with **Trivy** for high/critical vulnerabilities
+
+### **3. Deployment Stage**
+
+* Pushes the final Docker image to Docker Hub
+
+This ensures that only a **tested and secure** version of the image is deployed.
+
+Run tests locally using:
 
 ```bash
-pytest --cov=app --cov-report=term-missing -v --disable-warnings
+pytest --cov=app -v
 ```
-
-**GitHub workflow output:**
-Each push to `main` automatically triggers testing → scan → deploy, ensuring secure, reproducible builds.
 
 ---
 
-## **Docker Image & Deployment**
+## **Docker Hub Deployment**
 
-Once CI tests pass successfully, the verified image is automatically pushed to Docker Hub.
+I published the verified Docker image here:
 
-**Build & Push manually:**
+ **[https://hub.docker.com/r/nandanksingh/module10_user_model](https://hub.docker.com/r/nandanksingh/module10_user_model)**
 
-```bash
-docker build -t nandanksingh/module10_user_model:m10 .
-docker push nandanksingh/module10_user_model:m10
-```
-
-**Docker Hub Repository:**
-🔗 [https://hub.docker.com/r/nandanksingh/module10_user_model](https://hub.docker.com/r/nandanksingh/module10_user_model)
-
-**Pull and Run:**
+Pull the image:
 
 ```bash
 docker pull nandanksingh/module10_user_model:m10
+```
+
+Run it:
+
+```bash
 docker run -d -p 8000:8000 nandanksingh/module10_user_model:m10
 ```
 
-This container encapsulates the full backend system — FastAPI + PostgreSQL + pgAdmin — ideal for testing or demonstration purposes.
-
 ---
 
-## **Database Configuration**
-
-**pgAdmin Login:**
-
-* Email → `admin@local.com`
-* Password → `admin`
-
-**Database Connection:**
-
-* Host → `db`
-* User → `ps_user`
-* Password → `ps_password`
-* Database → `fastapi_user_db`
-
----
-
-## **Local Setup Instructions**
-
-### **1. Clone Repository and Activate Virtual Environment**
+## **Local Setup (Without Docker)**
 
 ```bash
 git clone https://github.com/nandanksingh/IS601_Assignment10.git
@@ -121,71 +113,47 @@ cd IS601_Assignment10
 python -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
-```
-
-### **2. Run Locally without Docker**
-
-```bash
 uvicorn main:app --reload
 ```
 
-Then open: [http://localhost:8000/docs](http://localhost:8000/docs)
+Open the API docs:
+[http://localhost:8000/docs](http://localhost:8000/docs)
 
 ---
 
-## **Key Features**
+## **Key Features Implemented**
 
-* Secure **User Model** with hashed passwords
-* **Pydantic** schemas for validation (UserCreate / UserRead)
-* **SQLAlchemy ORM** for robust data persistence
-* Environment-based config via `.env` and `config.py`
-* Automatic **PostgreSQL → SQLite fallback** in tests
-* 100% test coverage on database modules
-* Fully containerized development stack
-* Automated **CI/CD** with GitHub Actions + **Trivy scan**
-
----
-
-## **Common Issues & Fixes**
-
-| Issue                                  | Cause                                                | Solution                                         |
-| -------------------------------------- | ---------------------------------------------------- | ------------------------------------------------ |
-| `Database authentication failed`       | Env mismatch between `.env` and `docker-compose.yml` | Ensure both use `ps_user` / `ps_password`        |
-| `Port 8000 already in use`             | Previous FastAPI process active                      | Kill process via `fuser -k 8000/tcp`             |
-| `pytest import errors`                 | Bytecode cache conflicts                             | `find . -name "__pycache__" -exec rm -rf {} +`   |
-| `pgAdmin not loading`                  | DB service not yet healthy                           | Add `depends_on: db: condition: service_healthy` |
-| `Connection refused on localhost:5432` | DB credentials mismatch or service down              | Check `.env` vars before building Docker image   |
+* Secure SQLAlchemy **User Model**
+* Password hashing and verification functions
+* Pydantic **UserCreate** and **UserRead** schemas
+* PostgreSQL database with uniqueness constraints
+* Automatically seeded SQLite fallback for testing
+* Complete CI/CD pipeline with test coverage and security scans
+* Docker image ready for production-style testing
 
 ---
 
-## **Reflection (≈ 130 words)**
+## **Common Problems and Fixes**
 
-This assignment deepened my understanding of how **secure backend architectures** combine with **DevOps automation**.
-Implementing a Pydantic-based User Model strengthened my grasp of input validation and password hashing best practices.
-Working with **Docker Compose** made me appreciate how containerized multi-service environments simplify deployment.
-Troubleshooting PostgreSQL connectivity, `.env` variables, and GitHub pipeline errors improved my debugging workflow.
-Integrating **pytest**, **Trivy**, and **GitHub Actions** offered hands-on exposure to real-world continuous integration, testing, and deployment processes.
-By the end, I not only achieved full test coverage but also built a reusable, production-ready container that showcases secure, validated, and automated API development.
-
----
-
-## **Technology Stack**
-
-| Category             | Tools / Frameworks      |
-| :------------------- | :---------------------- |
-| **Language**         | Python 3.12             |
-| **Framework**        | FastAPI                 |
-| **ORM / DB**         | SQLAlchemy + PostgreSQL |
-| **Validation**       | Pydantic                |
-| **Testing**          | Pytest, Faker, Coverage |
-| **Containerization** | Docker, Docker Compose  |
-| **Database GUI**     | pgAdmin 4               |
-| **CI/CD**            | GitHub Actions + Trivy  |
-| **Image Tag**        | `m10`                   |
+| Problem              | Reason                   | Fix                   |
+| -------------------- | ------------------------ | --------------------- |
+| DB connection failed | Wrong `.env ` values     | Sync credentials      |
+| Port already in use  | Previous FastAPI running | Kill process          |
+| Tests failing        | Cached files             | Remove `__pycache__`  |
+| pgAdmin not loading  | DB not ready             | Add `service_healthy` |
+| Import errors        | Mixed environments       | Reinstall venv        |
 
 ---
 
-### **Final Summary**
+## **Reflection:**
 
-This project demonstrates how a **secure, production-ready FastAPI service** can be **tested, containerized, and deployed automatically** using modern DevOps tools.
-It bridges **Python application design** with **CI/CD automation**, reflecting industry best practices for building reliable, scalable backend systems.
+This assignment really helped me understand how backend development and DevOps fit together. Creating a secure user model showed me why input validation and password hashing are essential for any real application. Using Docker Compose made it easier to manage multiple services like FastAPI, PostgreSQL, and pgAdmin in one environment.
+
+I also learned how to write better tests and how GitHub Actions can automate the entire workflow—from running tests to scanning the image and finally deploying it to Docker Hub. Setting up the CI/CD pipeline was challenging at first, but it gave me valuable experience that reflects real industry practices. Overall, this project strengthened my confidence in building and deploying secure, well-tested backend applications.
+
+---
+
+## **Final Summary**
+
+This assignment combines secure API development with database management, automated testing, containerization, and CI/CD. The final result is a fully tested, secure, and automatically deployed FastAPI application—similar to what modern software teams build in real-world production environments.
+

@@ -1,44 +1,43 @@
 # ----------------------------------------------------------
 # Author: Nandan Kumar
-# Date: 11/08/2025
-# Assignment-10: Secure User Model, Pydantic Validation, and Docker Testing
+# Date: 11/11/2025
+# Assignment-10: Secure User Model, Pydantic Validation & Docker Testing
 # File: docker-compose.yml
 # ----------------------------------------------------------
 # Description:
 # Multi-container Docker Compose setup for the
 # FastAPI Secure User Model project.
 # Includes:
-#   1. FastAPI backend (SQLAlchemy + Pydantic)
-#   2. PostgreSQL database
-#   3. pgAdmin web interface
+#   1. FastAPI backend (app)
+#   2. PostgreSQL database (db)
+#   3. pgAdmin interface (pgadmin)
+#   4. Automated test container for CI/CD verification
+# Ensures parity between local, Docker, and GitHub Actions workflows.
 # ----------------------------------------------------------
 
-name: user_model_m10_project
+name: module10_user_model_project
 
 services:
   # --------------------------------------------------------
-  # 1. FastAPI Application (Main Web Service)
+  # 1. FastAPI Application (Backend API)
   # --------------------------------------------------------
-  web:
+  app:
     container_name: module10_user_model
-    image: nandanksingh/module10_user_model:m10
+    image: module10_user_model:m10
     build:
       context: .
       dockerfile: Dockerfile
-    env_file: .env
+    restart: always
     ports:
       - "8000:8000"
-    volumes:
-      - .:/app
-    environment:
-      PYTHONDONTWRITEBYTECODE: 1
-      PYTHONUNBUFFERED: 1
-      DATABASE_URL: postgresql://postgres:postgres@db:5432/fastapi_db
-      TEST_DATABASE_URL: sqlite:///./test.db
-    command: uvicorn main:app --host 0.0.0.0 --port 8000 --workers 2
     depends_on:
       db:
         condition: service_healthy
+    env_file:
+      - .env
+    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+    volumes:
+      - .:/app
     networks:
       - app-network
 
@@ -46,53 +45,80 @@ services:
   # 2. PostgreSQL Database
   # --------------------------------------------------------
   db:
-    container_name: postgres_user_model_m10
+    container_name: fastapi_postgres
     image: postgres:15
+    restart: always
     environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: fastapi_db
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
     ports:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: [ "CMD-SHELL", "pg_isready -U postgres" ]
-      interval: 10s
-      timeout: 5s
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
       retries: 5
+      timeout: 3s
     networks:
       - app-network
 
   # --------------------------------------------------------
-  # 3. pgAdmin Web Interface (Database GUI)
+  # 3. pgAdmin Web Interface (GUI for PostgreSQL)
   # --------------------------------------------------------
   pgadmin:
-    container_name: pgadmin_user_model_m10
-    image: dpage/pgadmin4:latest
+    container_name: fastapi_pgadmin
+    image: dpage/pgadmin4
+    restart: always
+    depends_on:
+      db:
+        condition: service_healthy
     environment:
-      PGADMIN_DEFAULT_EMAIL: admin@example.com
-      PGADMIN_DEFAULT_PASSWORD: admin
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_DEFAULT_EMAIL}
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_DEFAULT_PASSWORD}
     ports:
       - "5050:80"
     volumes:
       - pgadmin_data:/var/lib/pgadmin
+    networks:
+      - app-network
+
+  # --------------------------------------------------------
+  # 4. Test Runner (for CI/CD Coverage Validation)
+  # --------------------------------------------------------
+  tests:
+    container_name: module10_user_model_tests
+    build:
+      context: .
+      dockerfile: Dockerfile
     depends_on:
       db:
         condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/test_db
+    command: >
+      bash -c "
+        until pg_isready -h db -U ${POSTGRES_USER}; do sleep 2; done &&
+        psql -h db -U ${POSTGRES_USER} -d postgres -tc \"SELECT 1 FROM pg_database WHERE datname = 'test_db'\" |
+        grep -q 1 || psql -h db -U ${POSTGRES_USER} -d postgres -c 'CREATE DATABASE test_db;' &&
+        pytest --cov=app --cov-report=term-missing --cov-fail-under=90 -v --disable-warnings
+      "
     networks:
       - app-network
 
 # ----------------------------------------------------------
-# Volumes: Persistent storage for Postgres & pgAdmin
+# Volumes: Persistent storage for PostgreSQL & pgAdmin
 # ----------------------------------------------------------
 volumes:
   postgres_data:
   pgadmin_data:
 
-    # ----------------------------------------------------------
-    # Network: Shared Docker bridge for inter-service communication
-    # ----------------------------------------------------------
+# ----------------------------------------------------------
+# Network: Shared bridge network for service communication
+# ----------------------------------------------------------
 networks:
   app-network:
     driver: bridge

@@ -1,12 +1,15 @@
 # ----------------------------------------------------------
 # Author: Nandan Kumar
-# Date: 11/08/2025
-# Assignment-10: Secure User Model (Pydantic Validation + JWT + Database Testing)
+# Date: 11/09/2025
+# Assignment 10: Secure User Model (Pydantic Validation + JWT)
 # File: app/schemas/user_schema.py
 # ----------------------------------------------------------
 # Description:
-# Defines Pydantic schemas for user data exchange between
-# API endpoints, database models, and JWT authentication.
+# This module defines Pydantic schemas used for validating
+# and serializing user-related data within the FastAPI app.
+# It includes user creation, login, response, and token models.
+# Each schema ensures secure and structured communication
+# between the API, database, and authentication system.
 # ----------------------------------------------------------
 
 from datetime import datetime
@@ -18,35 +21,41 @@ from pydantic import BaseModel, EmailStr, Field, ConfigDict
 # Shared Base Schema
 # ----------------------------------------------------------
 class UserBase(BaseModel):
-    """Base schema shared by all user representations."""
+    """
+    Defines the base attributes common to all user schemas.
+    Provides ORM compatibility and reusable validation logic.
+    """
+
     username: str = Field(
         ...,
         min_length=3,
         max_length=50,
-        examples=["nandan123"],
-        description="Unique username or handle of the user"
+        description="Unique username for the user"
     )
     email: EmailStr = Field(
         ...,
-        examples=["nandan@example.com"],
-        description="User's unique email address"
+        description="User's valid email address"
     )
     is_active: bool = True
 
-    model_config = ConfigDict(from_attributes=True)  # Enables ORM ↔ Pydantic conversion
+    # Enables ORM mode for SQLAlchemy integration
+    model_config = ConfigDict(from_attributes=True)
 
 
 # ----------------------------------------------------------
-# Schema: User Creation (Registration)
+# Schema: User Creation
 # ----------------------------------------------------------
 class UserCreate(UserBase):
-    """Schema for creating a new user (includes raw password)."""
+    """
+    Used when creating a new user account.
+    Includes a plain-text password that will be hashed before saving.
+    """
+
     password: str = Field(
         ...,
         min_length=6,
         max_length=100,
-        examples=["StrongPass123"],
-        description="User's plain-text password (will be hashed before saving)"
+        description="Plain-text password (will be securely hashed)"
     )
 
 
@@ -54,28 +63,48 @@ class UserCreate(UserBase):
 # Schema: User Login
 # ----------------------------------------------------------
 class UserLogin(BaseModel):
-    """Schema for login credentials."""
+    """
+    Used when authenticating an existing user.
+    Accepts either a username or an email, along with the password.
+    """
+
     username: str = Field(
         ...,
         min_length=3,
         max_length=50,
-        examples=["nandan123", "nandan@example.com"],
-        description="Username or email used to log in"
+        description="Username or email used for login"
     )
     password: str = Field(
         ...,
         min_length=6,
         max_length=100,
-        examples=["StrongPass123"],
-        description="Plain-text password for login"
+        description="Plain-text password used for authentication"
     )
 
 
 # ----------------------------------------------------------
-# Schema: User API Response
+# Schema: User Read (for ORM model serialization)
+# ----------------------------------------------------------
+class UserRead(UserBase):
+    """
+    Returned after creating or fetching a user from the database.
+    This schema includes the user's ID and timestamps.
+    """
+
+    id: int
+    created_at: datetime
+    updated_at: Optional[datetime] = None
+
+
+# ----------------------------------------------------------
+# Schema: User Response
 # ----------------------------------------------------------
 class UserResponse(BaseModel):
-    """Schema for returning user details in API responses."""
+    """
+    Schema for safely returning user information in API responses.
+    Excludes password or other sensitive details.
+    """
+
     id: int
     username: str
     email: EmailStr
@@ -83,19 +112,30 @@ class UserResponse(BaseModel):
     created_at: datetime
     updated_at: Optional[datetime] = None
 
-    model_config = ConfigDict(from_attributes=True)  # Enables model_validate() for ORM objects
+    model_config = ConfigDict(from_attributes=True)
 
 
 # ----------------------------------------------------------
-# Schema: Token and Authentication
+# Schema: JWT Token
 # ----------------------------------------------------------
 class Token(BaseModel):
-    """JWT Access Token schema for authentication responses."""
+    """
+    Represents the structure of a JWT access token.
+    Includes token type and optionally user details.
+    """
+
     access_token: str
     token_type: str = "bearer"
-    user: Optional[UserResponse] = None  # Optional embedded user info
+    user: Optional[UserResponse] = None
 
 
+# ----------------------------------------------------------
+# Schema: Token Payload
+# ----------------------------------------------------------
 class TokenData(BaseModel):
-    """Payload schema used for JWT validation."""
+    """
+    Represents the payload extracted from a decoded JWT.
+    Contains only the user ID or subject field.
+    """
+
     sub: Optional[str] = None

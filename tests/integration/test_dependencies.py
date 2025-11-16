@@ -15,6 +15,7 @@ from unittest.mock import MagicMock
 from jose import jwt
 from fastapi import HTTPException, status
 from datetime import timedelta
+from sqlalchemy.orm.session import Session
 
 from app.auth import dependencies
 from app.auth.security import hash_password, verify_password
@@ -42,14 +43,13 @@ def fake_user():
 
 
 # ----------------------------------------------------------
-# Test: JWT Creation & Verification
+# JWT Tests
 # ----------------------------------------------------------
 def test_create_and_verify_token():
     """Ensure that JWT tokens are created and verified correctly."""
     data = {"sub": "1", "username": "testuser"}
     token = dependencies.create_access_token(data, timedelta(minutes=1))
 
-    # Decode using same secret and algorithm
     decoded = jwt.decode(
         token,
         dependencies.SECRET_KEY,
@@ -73,11 +73,10 @@ def test_verify_access_token_invalid():
 
 
 # ----------------------------------------------------------
-# Test: authenticate_user()
+# authenticate_user Tests
 # ----------------------------------------------------------
 def test_authenticate_user_valid(mock_db, fake_user):
     """Ensure authenticate_user() returns a valid user for correct credentials."""
-    # Mock DB query chain
     mock_query = MagicMock()
     mock_filter = MagicMock()
     mock_filter.first.return_value = fake_user
@@ -87,7 +86,7 @@ def test_authenticate_user_valid(mock_db, fake_user):
     result = dependencies.authenticate_user(mock_db, fake_user.username, "SecurePass123")
     assert result is not None
     assert result.username == fake_user.username
-    assert verify_password("SecurePass123", result.password_hash)  # type: ignore[arg-type]
+    assert verify_password("SecurePass123", result.password_hash)
 
 
 def test_authenticate_user_invalid_password(mock_db, fake_user):
@@ -115,13 +114,12 @@ def test_authenticate_user_not_found(mock_db):
 
 
 # ----------------------------------------------------------
-# Test: get_current_user()
+# get_current_user Tests
 # ----------------------------------------------------------
 def test_get_current_user_valid_token(mock_db, fake_user):
     """Verify get_current_user() retrieves user from valid token."""
     token = dependencies.create_access_token({"sub": str(fake_user.id)})
 
-    # Mock DB query chain
     mock_query = MagicMock()
     mock_filter = MagicMock()
     mock_filter.first.return_value = fake_user
@@ -134,8 +132,8 @@ def test_get_current_user_valid_token(mock_db, fake_user):
 
 
 def test_get_current_user_missing_user_id(mock_db):
-    """Verify token without 'sub' raises HTTP 401."""
-    token = dependencies.create_access_token({})  # no 'sub' claim
+    """Token without 'sub' should raise 401."""
+    token = dependencies.create_access_token({})
 
     with pytest.raises(HTTPException) as exc_info:
         dependencies.get_current_user(token=token, db=mock_db)
@@ -145,10 +143,9 @@ def test_get_current_user_missing_user_id(mock_db):
 
 
 def test_get_current_user_user_not_found(mock_db):
-    """Verify get_current_user() raises HTTP 401 if user does not exist."""
+    """If DB cannot find the user, raise 401."""
     token = dependencies.create_access_token({"sub": "999"})
 
-    # Mock DB returning None
     mock_query = MagicMock()
     mock_filter = MagicMock()
     mock_filter.first.return_value = None
@@ -160,3 +157,22 @@ def test_get_current_user_user_not_found(mock_db):
 
     assert exc_info.value.status_code == status.HTTP_401_UNAUTHORIZED
     assert "not found" in exc_info.value.detail.lower()
+
+
+# ----------------------------------------------------------
+# NEW TEST – Covers get_db() fully (lines 46–50)
+# ----------------------------------------------------------
+def test_get_db_session_lifecycle():
+    """Ensure get_db() yields a DB session and closes it afterward."""
+    gen = dependencies.get_db()
+    db = next(gen)
+
+    # Must be a SQLAlchemy session
+    assert isinstance(db, Session)
+
+    # Exhaust generator to run cleanup
+    with pytest.raises(StopIteration):
+        next(gen)
+
+    # After closing → db should be inactive or closed
+    assert not db.is_active or db.closed

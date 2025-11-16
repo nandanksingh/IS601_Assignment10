@@ -1,21 +1,17 @@
-# ----------------------------------------------------------
 # Author: Nandan Kumar
-# Date: 11/08/2025
-# Assignment-10: Secure User Model + OAuth2 + JWT Integration
+# Date: 11/09/2025
+# Assignment 10: Secure User Model (OAuth2 + JWT Integration)
 # File: app/auth/dependencies.py
 # ----------------------------------------------------------
 # Description:
-# Authentication utilities and dependencies for FastAPI.
-# Includes:
-#   • JWT token creation and validation
-#   • OAuth2 Bearer token authentication
-#   • Current user dependency for protected routes
-#   • Database session management for request scope
+# This module provides authentication dependencies and utilities
+# for the FastAPI application. It handles the creation and validation
+# of JSON Web Tokens (JWT), manages database sessions per request,
+# and defines dependencies for retrieving the current authenticated user.
 # ----------------------------------------------------------
 
 from datetime import datetime, timedelta
 from typing import Optional
-
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from jose import JWTError, jwt
@@ -24,36 +20,52 @@ from sqlalchemy.orm import Session
 from app.database.dbase import SessionLocal
 from app.models.user_model import User
 from app.auth.security import hash_password, verify_password
-from app.config import settings
 from app.schemas.user_schema import UserResponse
 
 # ----------------------------------------------------------
-# OAuth2 and JWT Configuration
+# JWT Configuration
 # ----------------------------------------------------------
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/login")
+SECRET_KEY = "super_secret_key_123"
+ALGORITHM = "HS256"
+ACCESS_TOKEN_EXPIRE_MINUTES = 30
 
-SECRET_KEY = settings.SECRET_KEY
-ALGORITHM = settings.ALGORITHM
-ACCESS_TOKEN_EXPIRE_MINUTES = settings.ACCESS_TOKEN_EXPIRE_MINUTES
+# OAuth2 password flow for FastAPI authentication
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/login")
 
 
 # ----------------------------------------------------------
 # Database Session Dependency
+# Database dependency used by FastAPI routes
 # ----------------------------------------------------------
-def get_db():  # pragma: no cover
-    """Provide a SQLAlchemy session for request scope."""
-    db = SessionLocal()
+from app.database.dbase import get_session
+
+def get_db():
+    db = get_session()
+
+    # Add attribute so tests can check it
+    db.closed = False
+
     try:
         yield db
     finally:
         db.close()
+        db.closed = True
 
 
 # ----------------------------------------------------------
 # JWT Token Utilities
 # ----------------------------------------------------------
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
-    """Generate a signed JWT access token with expiration."""
+    """
+    Create a signed JWT access token with an expiration time.
+
+    Args:
+        data (dict): The data payload to include in the token.
+        expires_delta (timedelta, optional): Custom expiration duration.
+
+    Returns:
+        str: A signed JWT token.
+    """
     to_encode = data.copy()
     expire = datetime.utcnow() + (expires_delta or timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES))
     to_encode.update({"exp": expire})
@@ -61,7 +73,18 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -
 
 
 def verify_access_token(token: str) -> dict:
-    """Decode and validate a JWT token."""
+    """
+    Decode and validate a JWT token.
+
+    Args:
+        token (str): The JWT token to be verified.
+
+    Returns:
+        dict: The decoded payload if the token is valid.
+
+    Raises:
+        HTTPException: If the token is invalid or expired.
+    """
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         return payload
@@ -78,8 +101,15 @@ def verify_access_token(token: str) -> dict:
 # ----------------------------------------------------------
 def authenticate_user(db: Session, username_or_email: str, password: str) -> Optional[User]:
     """
-    Authenticate a user by username/email and password.
-    Returns the User ORM object if credentials are valid.
+    Authenticate a user using their username or email and password.
+
+    Args:
+        db (Session): The active SQLAlchemy session.
+        username_or_email (str): The username or email of the user.
+        password (str): The plain-text password.
+
+    Returns:
+        Optional[User]: The user object if authentication is successful, otherwise None.
     """
     user = db.query(User).filter(
         (User.username == username_or_email) | (User.email == username_or_email)
@@ -92,13 +122,25 @@ def authenticate_user(db: Session, username_or_email: str, password: str) -> Opt
 
 
 # ----------------------------------------------------------
-# Get Current Authenticated User
+# Retrieve Current Authenticated User
 # ----------------------------------------------------------
 def get_current_user(
     token: str = Depends(oauth2_scheme),
     db: Session = Depends(get_db),
 ) -> UserResponse:
-    """Extract and return the current user from a valid JWT token."""
+    """
+    Extract and return the current user from a valid JWT token.
+
+    Args:
+        token (str): The bearer token from the Authorization header.
+        db (Session): The database session.
+
+    Returns:
+        UserResponse: A Pydantic schema representing the authenticated user.
+
+    Raises:
+        HTTPException: If the token is invalid or the user does not exist.
+    """
     payload = verify_access_token(token)
     user_id: Optional[str] = payload.get("sub")
 

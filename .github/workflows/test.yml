@@ -1,13 +1,13 @@
 # ----------------------------------------------------------
 # Author: Nandan Kumar
-# Date: 11/08/2025
+# Date: 11/09/2025
 # Assignment-10: Secure User Model, Pydantic Validation & Docker Testing
 # File: .github/workflows/test.yml
 # ----------------------------------------------------------
 # Description:
 # Complete CI/CD pipeline for the FastAPI Secure User Model.
 # Stages:
-#   1. Run Unit + Integration Tests (min 90 % coverage)
+#   1. Run Unit + Integration Tests (min 90% coverage)
 #   2. Perform Trivy vulnerability scan
 #   3. Build & Push verified image to Docker Hub
 # ----------------------------------------------------------
@@ -25,6 +25,7 @@ permissions:
   packages: write
 
 jobs:
+
   # --------------------------------------------------------
   # 1. TEST JOB — Unit, Integration, and Validation Tests
   # --------------------------------------------------------
@@ -35,17 +36,16 @@ jobs:
       postgres:
         image: postgres:15
         env:
-          POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: postgres
+          POSTGRES_USER: ps_user
+          POSTGRES_PASSWORD: ps_password
           POSTGRES_DB: fastapi_user_db
         ports:
           - 5432:5432
         options: >-
-          --health-cmd="pg_isready -U postgres"
+          --health-cmd="pg_isready -U ps_user"
           --health-interval=10s
           --health-timeout=5s
           --health-retries=5
-
 
     steps:
       - name: Checkout Repository
@@ -66,7 +66,7 @@ jobs:
 
       - name: Install Dependencies
         env:
-          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/fastapi_user_db
+          DATABASE_URL: postgresql://ps_user:ps_password@localhost:5432/fastapi_user_db
         run: |
           python -m venv venv
           source venv/bin/activate
@@ -75,14 +75,15 @@ jobs:
 
       - name: Run Unit and Integration Tests (Coverage ≥90%)
         env:
-          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/fastapi_user_db
+          DATABASE_URL: postgresql://ps_user:ps_password@localhost:5432/fastapi_user_db
         run: |
           source venv/bin/activate
-          pytest --cov=app --cov-report=term-missing --cov-report=html --cov-fail-under=90 -m "not e2e" -v --disable-warnings
+          pytest --cov=app --cov-report=term-missing --cov-report=html \
+                 --cov-fail-under=90 -m "not e2e" -v --disable-warnings
 
       - name: Upload Coverage Report
-        if: success()
         uses: actions/upload-artifact@v4
+        if: success()
         with:
           name: coverage-html
           path: htmlcov/
